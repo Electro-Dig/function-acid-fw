@@ -175,7 +175,7 @@ for i in ('lang', 'go', 'bar', 'status', 'log', 'app', 'stock-saved', 'stock-fil
     assert f'id="{i}"' in page, 'the page lacks #' + i
 assert f'"product": "{PRODUCT}"' in page and f'"sha256": "{sha}"' in page and '{{' not in page
 assert script.split('const BLOCKS')[1].split('const $ =')[0] in page, 'the update code must stay as SLOOP wrote it'
-(out / 'index.html').write_text(page, encoding='utf-8')
+(out / 'index.html').write_text(page, encoding='utf-8', newline='\n')
 
 # ---- the site
 site = ROOT / 'build' / 'site'
@@ -211,6 +211,6 @@ head = (f'<link rel="icon" href="data:image/svg+xml,{urllib.parse.quote(logo(64)
 guide = md_to_html((ROOT / 'TEST-ZH.md').read_text(encoding='utf-8'), f'FN ACID {VER} 上机说明', head, css=GUIDE_CSS)
 guide = guide.replace('<body><main>', '<body>' + nav + '<main><div class="doc">', 1).replace('</main></body>', '</div></main></body>', 1)
 assert nav in guide and '</div></main>' in guide
-(site / 'guide.html').write_text(guide, encoding='utf-8')
+(site / 'guide.html').write_text(guide, encoding='utf-8', newline='\n')
 print('installer ->', out / 'index.html', meta)
 print('site      ->', site, sorted(p.relative_to(site).as_posix() for p in site.rglob('*') if p.is_file()))
