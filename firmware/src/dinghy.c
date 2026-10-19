@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.2"
+#define APP_VER "0.3"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -35,7 +35,7 @@ typedef struct {
     uint8_t bAnimal, bPer, bPhase, bQuant; int8_t bTune; uint8_t bDrift, bNoise, bBright, bLvl, bArp;
     uint8_t kTop, kTone, kClick, kDrive, kPdec, kBody; int8_t kBase; uint8_t kDuck, kLvl;
     uint8_t hType, hTone, hDec, hPat, hLvl;
-    uint8_t lRate, lDep, lShape, lDest, dTime, dFb, dMix, mDrive, dTone;
+    uint8_t lRate, lDep, lShape, lDest, dTime, dFb, dMix, mDrive, dTone, rMix;
     uint8_t laneMode[4], keyLock, magic;
     uint8_t aSrc, sLen; int8_t sTrans;           /* ACID: 0 = its steps (lane 0), 1 = the formula; steps 1..16; transpose */
     uint16_t accM, sldM;                         /* ACID steps: accent, slide into the next step */
@@ -43,7 +43,7 @@ typedef struct {
 } params_t;
 _Static_assert(sizeof(params_t) <= 256u, "the settings page holds 256 bytes");
 static params_t P;
-#define MAGIC 0xA6
+#define MAGIC 0xA7
 #define STEPS (P.aSrc == 0u)
 
 /* what is not saved: the live keys, the riser, the clock */
@@ -123,6 +123,7 @@ static void defaults(void)
     P.root = 33; P.bpm = 120; P.autoSong = 0; P.bars = 8;
     P.kLvl = 110; P.bArp = 1; P.lRate = 4; P.mDrive = 20;
     P.dTime = 2; P.dFb = 54; P.dMix = 60; P.dTone = 64;       /* the film's echo: dotted eighth, 42 %, darker each time */
+    P.rMix = 40;                                               /* and its small room */
     P.laneMode[2] = P.laneMode[3] = 1; P.keyLock = 1; P.magic = MAGIC;
     for (t = 0; t < 4u; t++) for (i = 0; i < LANE; i++) P.lane[t][i] = NONE;
     for (t = 0; t < 4u; t++) apply_preset(t, 0);
@@ -148,6 +149,13 @@ static void load_steps(int film)
         if (!FILM_PAT[i][3]) P.lane[0][i] = (uint8_t)(P.root + FILM_PAT[i][0]);
         if (FILM_PAT[i][1]) P.accM |= (uint16_t)(1u << i);
         if (FILM_PAT[i][2]) P.sldM |= (uint16_t)(1u << i);
+    }
+    if (film) {   /* the film's drop (acid-film.html, 0:48-0:56): 120 BPM, saw, cutoff ~400 Hz, reso high, env ~2 octaves,
+                   * decay 280 ms, gate half a step, accent strong; echo 3/16 at 42 %; kick ducks the acid 30 %; 16th hats */
+        P.bpm = 120; P.aWave = 0; P.aSub = 0; P.aTune = 0; P.aLvl = 100; P.cut = 80; P.res = 100; P.env = 68; P.aDec = 18;
+        P.aAcc = 110; P.aGate = 50; P.aGlide = 0; P.aDrive = 30;
+        P.dTime = 2; P.dFb = 54; P.dMix = 52; P.dTone = 64; P.rMix = 40;
+        P.kDuck = 40; P.hPat = 1; P.terms |= T_KICK | T_FOUR | T_PERC; P.terms &= (uint16_t)~T_BIO; P.mutes = 0;
     }
 }
 static void count_lanes(void)
@@ -330,13 +338,23 @@ static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)   /* wit
     }
     if (f & FN_OCT) o->y += 12 << 8;                                                        /* y + 12 */
 }
+static uint32_t tau_ms(uint32_t dec)             /* the steps' DECAY: 200 ms .. 2 s, as on a 303 (log) */
+{
+    static const uint16_t TAU[17] = {200, 233, 272, 316, 369, 430, 501, 584, 681, 794, 925, 1078, 1257, 1465, 1707, 1990, 2000};
+    uint32_t i = dec >> 3, f = dec & 7u;
+    return (TAU[i] * (8u - f) + TAU[i + 1u] * f) >> 3;
+}
 static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
 {
     int32_t base = (24 + ((P.cut * 72) >> 7)) << 8, e, amt;
     if (P.lDep && P.lDest == 0) base += ((lfo_at(s, p16) * P.lDep) >> 15) * 6144 / 127;
     {   /* the filter envelope runs from the attack (over ties and slides); on the steps an accent closes fast, as on a 303 */
-        uint32_t k = STEPS && o->acc ? 6u : 2u + ((127u - P.aDec) >> 4), a = o->age > (24u << 16) ? (24u << 16) : o->age;
-        e = expneg((int32_t)((a * k) >> 8));
+        uint32_t a = o->age > (24u << 16) ? (24u << 16) : o->age, x;
+        if (STEPS) {                                     /* e^(-t / tau): kk = 64 / tau in steps; an accent: 200 ms */
+            uint32_t kk = 960000u / ((o->acc ? 200u : tau_ms(P.aDec)) * P.bpm);
+            x = (a * (kk ? kk : 1u)) >> 14;
+        } else x = (a * (2u + ((127u - P.aDec) >> 4))) >> 8;
+        e = expneg((int32_t)(x > 4095u ? 4095u : x));
     }
     amt = ((P.env * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
     if (fxFn & FN_SQUELCH) { base += 10 << 8; amt += 14; }
@@ -451,6 +469,33 @@ static struct {
 
 enum { PB_NONE, PB_L4, PB_L8, PB_L16, PB_L32, PB_REV, PB_STOP };
 enum { PF_LP = 1, PF_HP = 2, PF_CRUSH = 4 };
+/* a small room after the delay (Freeverb's tunings: 4 combs with damping, 2 all-passes; mono), ~1.6 s */
+static const uint16_t RV_LEN[6] = {1116, 1188, 1277, 1356, 556, 441};
+static int16_t rvBuf[1116 + 1188 + 1277 + 1356 + 556 + 441] __attribute__((section(".pool")));
+static struct { uint16_t idx[6], off[6]; int32_t lp[4]; uint8_t ready; } RV;
+static inline int32_t clip16(int32_t x) { return x > 32767 ? 32767 : x < -32767 ? -32767 : x; }   /* a feedback path: gain 1 */
+static int32_t reverb(int32_t in)
+{
+    int32_t acc = 0, c;
+    if (!RV.ready) { uint32_t o = 0; for (c = 0; c < 6; c++) { RV.off[c] = (uint16_t)o; o += RV_LEN[c]; } RV.ready = 1; }
+    for (c = 0; c < 4; c++) {
+        int16_t *b = rvBuf + RV.off[c];
+        int32_t y = b[RV.idx[c]];
+        RV.lp[c] += ((y - RV.lp[c]) * 19660) >> 15;                         /* damping: the highs die first */
+        b[RV.idx[c]] = (int16_t)clip16(in + ((RV.lp[c] * 29040) >> 15));        /* g 0.886: about 1.6 s */
+        if (++RV.idx[c] >= RV_LEN[c]) RV.idx[c] = 0;
+        acc += y;
+    }
+    acc >>= 2;
+    for (c = 4; c < 6; c++) {
+        int16_t *b = rvBuf + RV.off[c];
+        int32_t y = b[RV.idx[c]], o = y - acc;
+        b[RV.idx[c]] = (int16_t)clip16(acc + (y >> 1));
+        if (++RV.idx[c] >= RV_LEN[c]) RV.idx[c] = 0;
+        acc = o;
+    }
+    return acc;
+}
 #define CMASK 32767u
 static int16_t capL[CMASK + 1u] __attribute__((section(".pool"))), capR[CMASK + 1u] __attribute__((section(".pool")));
 static struct {
@@ -558,7 +603,7 @@ static void app_audio(int32_t *out, uint32_t n)
     if (E.startReq) { E.startReq = 0; E.s = 0; E.stepPh = 0; E.chBar = 0; E.playing = 1; run = 1; if (P.autoSong) { apply_chapter(0); riseStart = -1; } control(); }
     if (E.stopReq) { E.stopReq = 0; E.playing = 0; run = 0; riseStart = -1; }
     for (i = 0; i < n; i++) {
-        int32_t mix = 0, wet = 0, dl, dr, md, l, r;
+        int32_t mix = 0, wet = 0, dl, dr, md, l, r, rv = 0;
         uint32_t ns;
         if ((E.ctr++ & 15u) == 0u) control();
         ns = E.stepPh + E.sinc;
@@ -639,11 +684,12 @@ static void app_audio(int32_t *out, uint32_t n)
          * echoes go left, right, left..., each one through a low-pass, so each is darker and further away */
         dl = dbufL[(E.didx - E.dlen) & DMASK]; dr = dbufR[(E.didx - E.dlen) & DMASK];
         E.dlp += ((dr - E.dlp) * E.dk) >> 15;
-        dbufL[E.didx] = (int16_t)sat(((wet * P.dMix) >> 8) + ((E.dlp * P.dFb) >> 7));
+        dbufL[E.didx] = (int16_t)clip16(((wet * P.dMix) >> 8) + ((E.dlp * P.dFb) >> 7));   /* not sat(): it has gain 1.5 */
         dbufR[E.didx] = (int16_t)((dl * 29) >> 5);
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
-        l = sat((mix + ((dl * 13) >> 4)) * md); r = sat((mix + ((dr * 13) >> 4)) * md);
+        if (P.rMix) rv = (reverb((wet >> 3) + ((dl + dr) >> 3)) * P.rMix) >> 7;   /* the acid, the animal and their echoes */
+        l = sat((mix + ((dl * 13) >> 4) + rv) * md); r = sat((mix + ((dr * 13) >> 4) + rv) * md);
         /* punch-ins (FX held + a key): the whole mix */
         if (!X.frozen) { capL[X.ci] = (int16_t)l; capR[X.ci] = (int16_t)r; }
         X.ci = (X.ci + 1u) & CMASK;
@@ -783,7 +829,7 @@ enum { PM_CUT, PM_RES, PM_ENV, PM_ADEC, PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL, PM
        PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL, PM_HDEC,
        PM_N, PM_OFF, PM_DENS, PM_SWING, PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST, PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE,
        PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL,
-       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_NONE };
+       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_NONE };
 static const pm_t PM[] = {
     {"CUTOFF", O(cut), 0, 127, 0, F_NUM, 0, 0}, {"RESO", O(res), 0, 120, 0, F_NUM, 0, 0}, {"ENV AMT", O(env), 0, 127, 0, F_NUM, 0, 0},
     {"DECAY", O(aDec), 0, 127, 0, F_NUM, 0, 0}, {"WAVE", O(aWave), 0, 3, 0, F_LIST, 0, L_WAVE}, {"SUB", O(aSub), 0, 127, 0, F_NUM, 0, 0},
@@ -807,7 +853,7 @@ static const pm_t PM[] = {
     {"TEMPO", O(bpm), 80, 170, 0, F_NUM, 9, 0}, {"AUTO SONG", O(autoSong), 0, 1, 0, F_LIST, 9, L_ONOFF}, {"BARS/CH", O(bars), 2, 16, 0, F_NUM, 9, 0},
     {"KICK LVL", O(kLvl), 0, 127, 0, F_NUM, 2, 0},
     {"TONE", O(dTone), 0, 127, 0, F_NUM, 9, 0}, {"LENGTH", O(sLen), 1, 16, 0, F_NUM, 9, 0}, {"PLAYS", O(aSrc), 0, 1, 0, F_LIST, 9, L_SRC},
-    {"TRANSPOSE", O(sTrans), -12, 12, 1, F_ST, 9, 0},
+    {"TRANSPOSE", O(sTrans), -12, 12, 1, F_ST, 9, 0}, {"REVERB", O(rMix), 0, 127, 0, F_NUM, 9, 0},
 };
 static int32_t pget(uint32_t k) { const uint8_t *b = (const uint8_t *)&P + PM[k].off; return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b; }
 static void pset(uint32_t k, int32_t v)
@@ -824,6 +870,7 @@ static void pfmt(uint32_t k, char *s)
 {
     int32_t v = pget(k);
     s[0] = 0;
+    if (k == PM_ADEC && STEPS) { sint(s, (int32_t)tau_ms((uint32_t)v)); scat(s, "MS"); return; }
     switch (PM[k].fmt) {
     case F_LIST: scat(s, PM[k].list[v]); break;
     case F_ST: if (v > 0) scat(s, "+"); sint(s, v); scat(s, "ST"); break;
@@ -852,6 +899,7 @@ static const page_t PG_OTHER[] = {
     {"SCALE", {PM_NONE, PM_SCALEC, PM_WALK, PM_ROOT}}, {"ARP BLIP", {PM_ARPSET, PM_NONE, PM_BLIPAMT, PM_BLIPN}},
     {"LINE", {PM_N, PM_OFF, PM_DENS, PM_SWING}}, {"GLOBAL", {PM_BPM, PM_NONE, PM_AUTO, PM_BARS}}};
 static const page_t PG_STEPS = {"STEPS", {PM_SLEN, PM_ASRC, PM_SWING, PM_STRANS}};
+static const page_t PG_SPACE = {"SPACE", {PM_RMIX, PM_MDRIVE, PM_NONE, PM_NONE}};
 
 static struct {
     uint8_t group, page, part, rec, rootOct;
@@ -871,14 +919,14 @@ static const page_t *cur_page(void)
     case G_EDIT: return &PG_EDIT[U.part][U.page % NEDIT[U.part]];
     case G_ENV: return &PG_ENV[U.part];
     case G_LFO: return &PG_OTHER[0];
-    case G_FX: return &PG_OTHER[1];
+    case G_FX: return U.page % 2u == 0u ? &PG_OTHER[1] : &PG_SPACE;
     case G_SEL: return &PG_OTHER[2];
     case G_ARP: return &PG_OTHER[3];
     case G_SEQ: return U.page % 2u == 0u ? &PG_STEPS : &PG_OTHER[4];
     default: return &PG_OTHER[5];
     }
 }
-static uint32_t npages(void) { return U.group == G_EDIT ? NEDIT[U.part] : U.group == G_SEQ ? 2u : 1u; }
+static uint32_t npages(void) { return U.group == G_EDIT ? NEDIT[U.part] : U.group == G_SEQ || U.group == G_FX ? 2u : 1u; }
 static void toast(const char *a, const char *b)
 {
     U.toast[0] = 0; scat(U.toast, a); if (b) scat(U.toast, b);
