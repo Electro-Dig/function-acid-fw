@@ -52,6 +52,10 @@ static volatile uint8_t run;
 static uint8_t laneN[4];
 static volatile int16_t live[4] = {-1, -1, -1, -1}, liveN[4] = {-1, -1, -1, -1};
 static volatile uint8_t recNow;                 /* REC is on: the keys write notes (they don't transpose the steps) */
+/* FX held + a white key: punch-in effects while the key is held. These act on ACID's curve itself (y + 12, a mirror,
+ * x / 2, 2x, a squelch), the others on the sound (loops, reverse, tape stop, sweeps, crush: see the audio ISR) */
+enum { FN_OCT = 1, FN_MIRROR = 2, FN_HALF = 4, FN_DOUBLE = 8, FN_SQUELCH = 16 };
+static volatile uint8_t fxFn;
 static volatile uint32_t liveS[4], liveE[4];
 
 static const uint8_t ARP_SETS[6][4] = {{3, 7, 10, 12}, {4, 7, 11, 12}, {5, 7, 10, 12}, {12, 12, 24, 12}, {7, 12, 7, 19}, {3, 6, 9, 12}};
@@ -276,7 +280,7 @@ static void eval_steps(uint32_t s, uint32_t p16, acid_t *o)
     o->y += acid_mods(s, p16);
 }
 
-static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)
+static void eval_acid0(uint32_t s, uint32_t p16, acid_t *o, int noglide)
 {
     uint32_t t = P.terms, N = P.N, i = (s + P.off) % N, c = ((s + 32u) / N) >> P.arpSpd;
     int32_t base = P.root, y, laneRest = 0, legato = 0;
@@ -303,7 +307,7 @@ static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)
     if (laneRest || (P.dens < 127u && !o->acc && !legato && (hash32(s) & 127u) >= P.dens)) o->rest = 1;
     if (P.aGlide && !noglide && !o->slide) {
         acid_t pr;
-        eval_acid(s - 1u, 65535u, &pr, 1);
+        eval_acid0(s - 1u, 65535u, &pr, 1);
         if (!pr.rest) { int32_t k = 2 + ((127 - P.aGlide) >> 3); y = pr.y + (((y - pr.y) * (32767 - expneg((int32_t)((p16 * (uint32_t)k) >> 8)))) >> 15); }
     }
     if (riseStart >= 0 && (int32_t)(s - (uint32_t)riseStart) >= 0) {
@@ -314,6 +318,18 @@ static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)
     o->y = y; o->age = p16;
     o->gate = o->rest ? 0 : (o->slide || legato || p16 < P.aGate * 655u);
 }
+static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)   /* with the punch-ins that change the curve */
+{
+    uint32_t f = fxFn;
+    if (f & FN_HALF) { p16 = (((s & 1u) << 16) | p16) >> 1; s >>= 1; }                     /* x / 2 */
+    else if (f & FN_DOUBLE) { uint32_t q = p16 << 1; s = (s << 1) + (q >> 16); p16 = q & 65535u; }   /* 2x */
+    eval_acid0(s, p16, o, noglide);
+    if (f & FN_MIRROR) {                                                                    /* y -> 2c - y, around the root's octave */
+        o->y = ((P.root + 12) << 9) - o->y;
+        if (P.keyLock) o->y = snap_q8(o->y);
+    }
+    if (f & FN_OCT) o->y += 12 << 8;                                                        /* y + 12 */
+}
 static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
 {
     int32_t base = (24 + ((P.cut * 72) >> 7)) << 8, e, amt;
@@ -323,6 +339,7 @@ static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
         e = expneg((int32_t)((a * k) >> 8));
     }
     amt = ((P.env * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
+    if (fxFn & FN_SQUELCH) { base += 10 << 8; amt += 14; }
     return base + ((amt * e * 256) >> 15);
 }
 
@@ -432,6 +449,37 @@ static struct {
     uint32_t didx, dlen; int32_t dlp, dk;
 } E = {.nz = 22222u, .cT = -1};
 
+enum { PB_NONE, PB_L4, PB_L8, PB_L16, PB_L32, PB_REV, PB_STOP };
+enum { PF_LP = 1, PF_HP = 2, PF_CRUSH = 4 };
+#define CMASK 32767u
+static int16_t capL[CMASK + 1u] __attribute__((section(".pool"))), capR[CMASK + 1u] __attribute__((section(".pool")));
+static struct {
+    volatile uint8_t req, flags;               /* from the keys: the buffer effect wanted (0 = none), the filter / crush */
+    uint8_t mode, frozen, pflags;
+    uint32_t ci, anchor, t, len, pos, rate, dec;
+    int32_t xf, lpL, bpL, lpR, bpR, sw, swT, hc, hl, hr, crushG;
+    uint32_t lpT, hpT;
+} X;
+static void punch_start(void)                    /* on the grid: the next 16th */
+{
+    uint32_t stepS = 661500u / P.bpm;
+    X.mode = X.req; X.t = 0; X.anchor = X.ci; X.frozen = 0;
+    switch (X.mode) {
+    case PB_L4: X.len = stepS * 4u; break;
+    case PB_L8: X.len = stepS * 2u; break;
+    case PB_L16: X.len = stepS; break;
+    case PB_L32: X.len = stepS / 2u; break;
+    case PB_REV: X.len = stepS * 4u; X.frozen = 1; break;
+    default: X.pos = X.ci << 16; X.rate = 65536u; X.dec = 65536u / (stepS * 6u) + 1u; X.len = 1;
+    }
+    if (X.len > CMASK) X.len = CMASK;
+}
+static inline int32_t edge_fade(uint32_t pos, uint32_t len)   /* no clicks where a loop joins: 96 samples in and out */
+{
+    uint32_t e = pos < len - pos ? pos : len - pos;
+    return e >= 96u ? 32767 : (int32_t)(e * 341u);
+}
+
 static uint32_t inc_q8(int32_t y)
 {
     int32_t n = y >> 2, oct, r;
@@ -463,6 +511,7 @@ static void on_step(void)
         if (E.chBar >= P.bars) { E.chBar = 0; riseStart = -1; apply_chapter(P.chapter + 1u); }
     }
     if (E.playing) perc_hit(perc_on(E.s));
+    if (X.req && X.req != X.mode) punch_start();
 }
 static void control(void)
 {
@@ -480,7 +529,10 @@ static void control(void)
     E.aAmpT = (E.aAmpT * E.duck) >> 15;
     fcq = (int32_t)(inc_q8(cutoff_at(&oA, s, p16)) / 20861u);
     E.f = fcq < 23000 ? fcq : 23000;
-    E.damp = 32768 - ((P.res * 31500) >> 7);               /* Q14: 2.0 .. 0.08 */
+    {
+        int32_t res = (fxFn & FN_SQUELCH) && P.res < 112u ? 112 : P.res;
+        E.damp = 32768 - ((res * 31500) >> 7);               /* Q14: 2.0 .. 0.08 */
+    }
     E.aDrv = 12 + (P.aDrive >> 2);
     E.bInc = inc_q8(oB.y);
     E.bAmpT = (P.mutes & 2u) ? 0 : ((((oB.amp * P.bLvl) >> 7) * E.duck) >> 15);
@@ -592,6 +644,54 @@ static void app_audio(int32_t *out, uint32_t n)
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
         l = sat((mix + ((dl * 13) >> 4)) * md); r = sat((mix + ((dr * 13) >> 4)) * md);
+        /* punch-ins (FX held + a key): the whole mix */
+        if (!X.frozen) { capL[X.ci] = (int16_t)l; capR[X.ci] = (int16_t)r; }
+        X.ci = (X.ci + 1u) & CMASK;
+        if (X.req && !X.mode && !E.playing) punch_start();                 /* stopped: no grid to wait for */
+        if (X.mode) {
+            int32_t bl = 0, br = 0, g = 32767, tgt = X.req == X.mode ? 32767 : 0;
+            uint32_t p;
+            if (X.mode <= PB_L32) {
+                p = X.t % X.len;
+                if (X.t >= X.len) X.frozen = 1;
+                bl = capL[(X.anchor + p) & CMASK]; br = capR[(X.anchor + p) & CMASK]; g = edge_fade(p, X.len);
+            } else if (X.mode == PB_REV) {
+                p = X.t % X.len;
+                bl = capL[(X.anchor - 1u - p) & CMASK]; br = capR[(X.anchor - 1u - p) & CMASK]; g = edge_fade(p, X.len);
+            } else if (X.rate) {                                               /* tape stop: the reader slows to nothing */
+                uint32_t a = (X.pos >> 16) & CMASK, b = (a + 1u) & CMASK, fr = (X.pos >> 1) & 32767u;
+                bl = capL[a] + (((capL[b] - capL[a]) * (int32_t)fr) >> 15); br = capR[a] + (((capR[b] - capR[a]) * (int32_t)fr) >> 15);
+                X.pos += X.rate; X.rate = X.rate > X.dec ? X.rate - X.dec : 0u;
+            }
+            X.t++;
+            bl = (bl * g) >> 15; br = (br * g) >> 15;
+            X.xf += (tgt - X.xf) >> 7;
+            l += ((bl - l) * X.xf) >> 15; r += ((br - r) * X.xf) >> 15;
+            if (!tgt && X.xf < 64) { X.mode = PB_NONE; X.frozen = 0; X.xf = 0; }
+        }
+        if (X.flags & (PF_LP | PF_HP)) {                                   /* sweeps over a bar: LP down, HP up */
+            uint32_t bar = (661500u / P.bpm) * 16u, q8, fq;
+            int32_t f, h;
+            if (!(X.pflags & PF_LP) && (X.flags & PF_LP)) X.lpT = 0;
+            if (!(X.pflags & PF_HP) && (X.flags & PF_HP)) X.hpT = 0;
+            if (X.flags & PF_LP) { uint32_t u = X.lpT < bar ? X.lpT : bar; q8 = 124u * 256u - u * (72u * 256u) / bar; X.lpT++; }
+            else { uint32_t u = X.hpT < bar ? X.hpT : bar; q8 = 20u * 256u + u * (76u * 256u) / bar; X.hpT++; }
+            fq = inc_q8((int32_t)q8) / 20861u; f = fq < 23000u ? (int32_t)fq : 23000;
+            X.lpL += (f * X.bpL) >> 15; h = l - X.lpL - ((13107 * X.bpL) >> 14);
+            if (h > 65535) h = 65535; else if (h < -65535) h = -65535;
+            X.bpL += (f * h) >> 15; if (X.bpL > 60000) X.bpL = 60000; else if (X.bpL < -60000) X.bpL = -60000;
+            l = (X.flags & PF_LP) ? X.lpL : h;
+            X.lpR += (f * X.bpR) >> 15; h = r - X.lpR - ((13107 * X.bpR) >> 14);
+            if (h > 65535) h = 65535; else if (h < -65535) h = -65535;
+            X.bpR += (f * h) >> 15; if (X.bpR > 60000) X.bpR = 60000; else if (X.bpR < -60000) X.bpR = -60000;
+            r = (X.flags & PF_LP) ? X.lpR : h;
+            l = sat(l); r = sat(r);
+        } else { X.lpL = X.bpL = X.lpR = X.bpR = 0; }
+        if (X.flags & PF_CRUSH) {                                          /* 5 bits, a sixth of the sample rate */
+            if (++X.hc >= 6) { X.hc = 0; X.hl = l & ~2047; X.hr = r & ~2047; }
+            l = X.hl; r = X.hr;
+        }
+        X.pflags = X.flags;
         out[2u * i] += (l * 7) >> 3; out[2u * i + 1u] += (r * 7) >> 3;
     }
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
@@ -1009,6 +1109,42 @@ static void step_cell(uint32_t knob, const char **lab, char *val)
     }
 }
 
+/* FX held: white keys 1-6 replay the sound (loops 1/4..1/32, reverse, tape stop), 7-9 colour it (LP and HP sweeps, crush),
+ * 10-14 change ACID's curve (y + 12, mirror, x / 2, 2x, squelch), 15 rise (let go: the drop), 16 throw into the delay */
+static const char *const FX_LAB[16] = {"L1/4", "L1/8", "L1/16", "L1/32", "REV", "STOP", "LP", "HP", "CRUSH",
+                                       "Y+12", "MIRR", "X/2", "2X", "SQLCH", "RISE", "THROW"};
+static const char *const FX_SAY[16] = {"LOOP 1/4", "LOOP 1/8", "LOOP 1/16", "LOOP 1/32", "REVERSE", "TAPE STOP", "LOW-PASS DOWN",
+                                       "HIGH-PASS UP", "CRUSH", "Y = Y + 12", "Y = 2C - Y", "X = X / 2", "X = 2X", "SQUELCH", "RISE", "THROW"};
+static uint8_t fxThrowKeep, fxThrow;
+static int8_t fxBufKey = -1;
+static void fx_key(uint32_t i, int down)
+{
+    static const uint8_t FN[5] = {FN_OCT, FN_MIRROR, FN_HALF, FN_DOUBLE, FN_SQUELCH}, PF[3] = {PF_LP, PF_HP, PF_CRUSH};
+    if (i >= 16u) return;
+    if (down) toast(FX_SAY[i], 0);
+    if (i < 6u) {
+        if (down) { X.req = (uint8_t)(i + 1u); fxBufKey = (int8_t)i; }
+        else if (fxBufKey == (int8_t)i) { X.req = 0; fxBufKey = -1; }
+    } else if (i < 9u) { if (down) X.flags |= PF[i - 6u]; else X.flags &= (uint8_t)~PF[i - 6u]; }
+    else if (i < 14u) { if (down) fxFn |= FN[i - 9u]; else fxFn &= (uint8_t)~FN[i - 9u]; }
+    else if (i == 14u) { riseStart = down ? (int32_t)E.s : -1; if (!down) toast("DROP", 0); }
+    else if (down && !fxThrow) { fxThrowKeep = P.dMix; P.dMix = 127; fxThrow = 1; }
+    else if (!down && fxThrow) { P.dMix = fxThrowKeep; fxThrow = 0; }
+}
+static void fx_release_all(void)                 /* FX let go: everything back */
+{
+    X.req = 0; X.flags = 0; fxFn = 0; fxBufKey = -1; riseStart = -1;
+    if (fxThrow) { P.dMix = fxThrowKeep; fxThrow = 0; }
+}
+static int fx_on(uint32_t i)
+{
+    static const uint8_t FN[5] = {FN_OCT, FN_MIRROR, FN_HALF, FN_DOUBLE, FN_SQUELCH}, PF[3] = {PF_LP, PF_HP, PF_CRUSH};
+    if (i < 6u) return fxBufKey == (int8_t)i;
+    if (i < 9u) return (X.flags & PF[i - 6u]) != 0;
+    if (i < 14u) return (fxFn & FN[i - 9u]) != 0;
+    return i == 14u ? riseStart >= 0 : fxThrow;
+}
+
 static void layer_key(uint32_t k, int down)
 {
     int w, i = key_index(k, &w);
@@ -1030,9 +1166,7 @@ static void layer_key(uint32_t k, int down)
         else if (i == 3) { P.keyLock ^= 1u; toast("KEY LOCK ", P.keyLock ? "ON" : "OFF"); changed(); }
         break;
     case BTN_FX:
-        if (w && i == 14) { riseStart = down ? (int32_t)E.s : -1; toast(down ? "RISE" : "DROP", 0); }
-        if (w && i == 15) { static uint8_t keep; if (down) { keep = P.dMix; P.dMix = 127; } else P.dMix = keep; }
-        if (down && w && i < 4) { P.dTime = (uint8_t)i; changed(); }
+        if (w) fx_key((uint32_t)i, down);
         break;
     case BTN_SEL:
         if (down) { P.root = (int8_t)(53 + (int32_t)k - 24); { char s[8] = ""; snote(s, P.root); toast("ROOT ", s); } changed(); }
@@ -1060,7 +1194,7 @@ static const char *layer_label(uint32_t k, char *buf)       /* what key k does i
     case BTN_SEQ: if (w && i < 10) return TERM_NAMES[i]; if (!w) { scat(buf, "N"); sint(buf, NQ[i]); return buf; } break;
     case BTN_GLO: if (w && i < 4) return TRK[i]; break;
     case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; break;
-    case BTN_FX: if (w && i < 4) return L_DTIME[i]; if (w && i == 14) return "RISE"; if (w && i == 15) return "THROW"; break;
+    case BTN_FX: if (w && i < 16) return FX_LAB[i]; break;
     case BTN_SEL: snote(buf, 53 + (int32_t)k - 24); return buf;
     case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i == 8) return "BLANK"; if (w && i == 9) return "FILM"; break;
     case BTN_EDIT: case BTN_ENV: if (w && i < 4) return TRK[i]; if (w && i >= 8 && (uint32_t)(i - 8) < NPRE[U.part]) { scat(buf, "P"); sint(buf, i - 7); return buf; } break;
@@ -1078,6 +1212,7 @@ static int layer_on(uint32_t k)
     case BTN_REC: return w && ((i == 2 && P.laneMode[U.part] == 0) || (i == 3 && P.keyLock));
     case BTN_SEL: return 53 + (int32_t)k - 24 == P.root;
     case BTN_HOME: return w && !STEPS && i == (int)P.chapter;
+    case BTN_FX: return w && fx_on((uint32_t)i);
     case BTN_EDIT: case BTN_ENV: return w && (i == (int)U.part || (i >= 8 && i - 8 == (int)P.pre[U.part]));
     case BTN_ARP: return w && i == (int)P.arpSet;
     default: return 0;
@@ -1436,7 +1571,7 @@ static void app_main(void)
                 } else { U.held = (int8_t)k; U.heldT = fm1_ms; U.used = 0; }
             }
             if (rel >> k & 1u && U.held == (int8_t)k) {
-                if (k == BTN_FX && riseStart >= 0) riseStart = -1;
+                if (k == BTN_FX) fx_release_all();
                 if (!U.used && fm1_ms - U.heldT < 450u) tap((int)k);
                 U.held = -1;
             }
@@ -1455,7 +1590,9 @@ static void app_main(void)
         /* the screen: the graph about 30 times a second, the rest when it changes */
         if (fm1_ms - lastFrame >= 33u) {
             lastFrame = fm1_ms;
-            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u) draw_keymap(); else if (steps_page()) draw_steps(); else draw_graph();
+            int fxShow = U.held == BTN_FX && (fxBufKey >= 0 || X.flags || fxFn || riseStart >= 0 || fxThrow);
+            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u && !fxShow) draw_keymap();
+            else if (steps_page() && !fxShow) draw_steps(); else draw_graph();
             draw_rows();
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
         }

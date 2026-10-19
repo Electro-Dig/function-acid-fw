@@ -1,0 +1,28 @@
+# FN ACID 0.2 host test: the FX layer. The film's line, then FX held + white keys: loop 1/4, reverse, tape stop,
+# low-pass sweep, mirror (the curve flips), x / 2, crush; FX let go
+100 btn 12
+300 hold 8
+500 keys 0x10000
+600 keys 0
+700 release 8
+4000 hold 2
+4200 shot
+4300 keys 0x1
+5000 shot
+5500 keys 0
+5600 keys 0x80
+6500 keys 0
+6600 keys 0x200
+7800 keys 0
+7900 keys 0x800
+9500 keys 0
+9600 keys 0x40000
+10000 shot
+10500 keys 0
+10600 keys 0x80000
+11000 shot
+11400 keys 0
+11500 keys 0x4000
+12500 keys 0
+12600 release 2
+13500 end
