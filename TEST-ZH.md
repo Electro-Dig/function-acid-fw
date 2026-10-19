@@ -1,0 +1,53 @@
+# FN ACID 0.1 测试版 · 上机说明
+
+这是「函数 Acid」的第一个实机测试固件（身份号 FM-1_956）。底座是开源的 Dinghy（zvenson），它沿用 SLOOP / Felucca 的底层（开机、USB、刷机通道、救援模式），我们只换了声音和画面。
+
+## 刷之前（5 分钟）
+
+1. **备份 SLOOP 的工程**：打开 SLOOP 网页编辑器 → Projects → Backup，存一个文件。新固件读不了 SLOOP 的工程，刷回 SLOOP 后可以从这个文件恢复。
+2. 用能传数据的 USB 线把 FM-1 直接插电脑（不要经过 Hub），开机。
+3. 用 **Chrome 或 Edge**（要 Web MIDI）。
+
+## 刷入
+
+1. 启动本地安装页（在这台电脑上）：`python -m http.server 8814 -d D:/claude/function-acid-fw/web/installer`，或在 Claude 里用 launch 配置 `acid-installer`。
+2. Chrome 打开 http://localhost:8814 ，页面顶部绿色框写着 FN ACID 0.1 test。浏览器问 MIDI 权限时允许。
+3. 按 Install，等进度条走完（几分钟，别拔线）。FM-1 会自己重启，屏幕变成荧光绿的“函数 Acid”。
+
+这个安装页就是 SLOOP 2.7.1 自己的安装页（同一套代码），只是把要装的包换成了 FN ACID。
+
+## 刷坏了 / 想回去
+
+- **想回 SLOOP**：打开 SLOOP 的安装页 https://isod89.github.io/sloop-fm1/webapp/installer/ 按 Install；或在 FM-1 Firmware Hub https://thefirmwarehub.com/ 选 SLOOP。再用编辑器把备份恢复。
+- **开机就崩 / 黑屏**：按住 **OCT−** 再开机 = USB 救援模式（只有升级通道，没有声音），然后用上面任何一个安装页重新刷。连续两次开机崩溃，它也会自己进救援模式。
+- 安装页最下面还有“回官方 V15”。
+
+## 测试版能做什么
+
+和网页版（visual-interaction-lab.netlify.app/04-function-acid）一样的操作，少了几样：
+
+| 键 | 点一下 | 按住 + 琴键 |
+|---|---|---|
+| ▶/■ | 开始 / 停止 | — |
+| HOME | CUTOFF · RESO · ENV · DECAY（最主要：慢慢拧开 CUTOFF） | 白键 1–6 换章 |
+| SEQ | LINE 页：N · OFFSET · DENSITY · SWING；**这页按 OCT+ 掷一条新线，OCT− 变异**；再按 = 公式页（测试版只有标题） | 白键开关公式里的项，黑键选 N |
+| EDIT / ENV | 当前轨的音色 / 包络 | 白键 1–4 选轨，9–16 选预置 |
+| ALGORITHM / PRESETS | 选轨 / 换预置 | — |
+| SELECT | 翻页；只有一页时换章 | — |
+| REC | 给当前轨录音（FOLLOW：你弹根音，公式弹节奏） | 白键 1 清当前轨 · 2 清全部 · 3 FOLLOW/EXACT · 4 锁调 |
+| GLO | 速度 · **AUDIO CPU**（声音占了多少算力）· 自动六章 · 每章小节数 | 白键 1–4 静音四轨 |
+| FX | 延迟 | 白键 15 按住 = 上升，松手 drop；16 = 甩进延迟 |
+| SEL / ARP / LFO | 音阶 / 和弦 / LFO | SEL：琴键 = 根音；ARP：白键选和弦 |
+| SAVE | 把当前状态存进机器（关机不丢；停止 20 秒后也会自动存） | — |
+| OCT− / OCT+ | 键盘八度（SEQ 页上是掷线 / 变异） | — |
+| MASTER | 音量 | — |
+
+## 请帮忙看的几件事
+
+1. **手感**：旋钮转一格变多少合不合适（0–127 的参数一格走 2，快拧一格走 3）。
+2. **AUDIO CPU**：GLO 页第 2 格。超过 50% 就危险，四轨全开时是多少？
+3. **屏幕**：刷新顺不顺、字看不看得清、四条线分不分得开。
+4. **有没有爆音、卡顿、死机**（死机时屏幕会显示 PC 地址，拍下来最好）。
+5. 和网页版比，声音像不像。
+
+已知的局限：没有 U1–U8 存档；公式页只有标题；LFO / FX 等页面能调，但按住层只做了 SEQ、GLO、REC、FX、SEL、HOME、EDIT/ENV、ARP。

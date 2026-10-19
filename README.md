@@ -1,3 +1,15 @@
+# FN ACID (Function Acid) — 0.1 test
+
+**This fork is FN ACID**, an FM-1 firmware where every track is a function y(s, φ) drawn on one pair of axes and
+played as it is drawn, after AA (@measure_plan) "trying to turn math into acid". The app is
+[firmware/src/dinghy.c](firmware/src/dinghy.c); the tables come from `tools/gen_acid_tables.py`; the browser
+prototype it is ported from lives in `visual-interaction-lab/04-function-acid`. Test guide (Chinese): [TEST-ZH.md](TEST-ZH.md).
+Local installer: `python3 tools/make_installer.py` after `./build.sh`, then serve `web/installer` and open it in Chrome.
+Host test: `tests/scripts/acid-tour.txt`. Package identity `FM-1_956`. GPL-3.0, standing on Dinghy (zvenson),
+SLOOP (isod89) and Felucca (Leo Kuroshita, Hügelton Instruments).
+
+---
+
 <p align="center"><img src="assets/logo.svg" width="96" alt="Dinghy"></p>
 
 # Dinghy

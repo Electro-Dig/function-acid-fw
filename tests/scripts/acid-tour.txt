@@ -1,0 +1,22 @@
+# FUNCTION ACID host test: play, look at HOME, turn the cutoff, throw a line, hold SEQ, record BIO
+100 btn 12
+1500 shot
+1600 enc 2 20
+1700 shot
+2500 btn 11
+2600 btn 1
+3600 shot
+3700 hold 11
+3900 shot
+4000 release 11
+4100 enc 1 1
+4200 keys 0x4
+4400 keys 0
+4500 btn 13
+4600 keys 0x10
+4800 keys 0
+5500 keys 0x80
+5700 keys 0
+6400 btn 13
+7500 shot
+8000 end
