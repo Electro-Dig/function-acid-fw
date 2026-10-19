@@ -1,111 +1,262 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
-     Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments -->
-<html lang="en">
+     FN ACID's install page. The page is ours; the installer code in the <script> below is SLOOP 2.7.1's web installer
+     (isod89), itself Felucca's (Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments), copied unchanged
+     by tools/make_installer.py except for the package it installs and the words it shows. Template: web/site/install.html -->
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FN ACID 0.32 installer (test)</title><style>#nl-badge-frame{display:none!important}</style>
-
+<title>FN ACID · 函数 Acid 固件安装</title>
+<meta name="description" content="FN ACID 0.32：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="theme-color" content="#c4e45a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22/%3E%3C/svg%3E">
 <style>
-  :root { --bg: #000; --fg: #f2f2f2; --dim: #8a8a92; --tile: #16161a; --line: #2a2a30;
-          --blue: #287cff; --green: #1ecc70; --yellow: #ffc618; --orange: #ff621a; --red: #ff2c34; }
-  :root[data-theme="light"] { --bg: #f4f4f2; --fg: #111; --dim: #666; --tile: #e6e6e2; --line: #d0d0cc; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font: 15px/1.6 "Helvetica Neue", -apple-system, BlinkMacSystemFont, Arial, sans-serif; }
-  main { max-width: 560px; margin: 0 auto; padding: 32px 16px 48px; }
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .logo svg { display: block; width: 220px; height: auto; }
-  .logo rect:first-child { fill: transparent; }
-  .lang { font-size: 12px; color: var(--dim); cursor: pointer; text-decoration: underline; background: none;
-          border: 0; padding: 0; text-transform: lowercase; }
-  .strip { display: flex; height: 4px; margin: 20px 0 24px; }
-  .strip i { flex: 1; } .strip i:nth-child(1) { background: var(--blue); } .strip i:nth-child(2) { background: var(--green); }
-  .strip i:nth-child(3) { background: var(--yellow); } .strip i:nth-child(4) { background: var(--orange); }
-  h1 { font-size: 13px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
-  .lead { font-size: 20px; line-height: 1.35; margin: 0 0 24px; }
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 28px; }
-  .tile { background: var(--tile); padding: 10px 10px 12px; border-top: 3px solid var(--c); min-height: 92px; }
-  .tile b { display: block; font-size: 22px; font-weight: 600; color: var(--c); line-height: 1.1; }
-  .tile span { display: block; font-size: 12px; color: var(--dim); text-transform: lowercase; margin-top: 4px; }
-  p { margin: 0 0 14px; }
-  button#go { font: 600 15px/1 inherit; font-family: inherit; background: var(--orange); color: #000; border: 0;
-              padding: 16px 0; width: 100%; cursor: pointer; letter-spacing: .08em; text-transform: uppercase; }
-  button#go:disabled { background: var(--tile); color: var(--dim); cursor: default; }
-  #status { margin-top: 14px; min-height: 1.6em; font-variant-numeric: tabular-nums; }
-  .small { color: var(--dim); font-size: 12.5px; }
-  .small a, a { color: inherit; }
-  progress { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; margin-top: 16px; border: 0; background: var(--tile); }
-  progress::-webkit-progress-bar { background: var(--tile); }
-  progress::-webkit-progress-value { background: var(--orange); }
-  progress::-moz-progress-bar { background: var(--orange); }
-  pre { color: var(--dim); font-size: 11px; white-space: pre-wrap; margin-top: 12px; max-height: 160px; overflow: auto; }
-  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0 18px; }
-  [hidden] { display: none !important; }
-  button.ed { font: inherit; color: var(--fg); border: 0; cursor: pointer; }
-  .ed { display: inline-block; margin: 8px 0 0; padding: 10px 14px; background: var(--tile); text-decoration: none; }
-  details { margin: 22px 0 0; } summary { cursor: pointer; font-weight: 600; }
-  button#stock-go { font: 600 14px/1 inherit; font-family: inherit; background: var(--tile); color: var(--fg); border: 1px solid var(--line);
-                    padding: 12px 16px; cursor: pointer; }
-  button#stock-go:disabled { color: var(--dim); cursor: default; }
-  @media (max-width: 420px) { .tiles { grid-template-columns: repeat(2, 1fr); } .logo svg { width: 170px; } }
+/* FN ACID site: one look for the installer, the guide and the editor (the firmware's screen: lime paper, ink, red).
+   tools/make_installer.py inlines this file into build/site/index.html and guide.html. */
+:root{--bg:#efeee8;--card:#fbfaf6;--ink:#1d1d1b;--ink2:#5b5a55;--ink3:#8d8a82;--line:#d9d6cc;
+      --lcd:#ceea70;--lime:#c4e45a;--lcdink:#1d1d1b;--red:#d8204a;--t2:#b0103a;--t3:#1d3fae;--t4:#7a4a00;
+      --mono:ui-monospace,"SFMono-Regular","Cascadia Mono",Consolas,Menlo,monospace;
+      --sans:system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;
+  --line:#34343a;--red:#ff4f73;--t2:#ff6b8a;--t3:#8aa2ff;--t4:#e0a64a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;--line:#34343a;--red:#ff4f73;
+  --t2:#ff6b8a;--t3:#8aa2ff;--t4:#e0a64a;color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 var(--sans);overflow-x:hidden}
+a{color:inherit;text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:var(--red)}
+code,kbd,pre,.mono{font-family:var(--mono)}
+code{font-size:.9em;background:color-mix(in srgb,var(--ink) 8%,transparent);padding:0 4px;border-radius:4px}
+#nl-badge-frame{display:none!important}
+[hidden]{display:none!important}
+html[lang="en"] [data-l="zh"],html:not([lang="en"]) [data-l="en"]{display:none!important}
+
+/* top bar */
+.bar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);
+     border-bottom:1px solid var(--line)}
+.bar .in{max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none;font:700 17px/1 var(--mono);letter-spacing:.04em;color:var(--ink)}
+.brand svg{width:28px;height:28px;flex:none;border-radius:6px}
+.brand small{font:500 12px/1 var(--sans);color:var(--ink2);letter-spacing:0}
+.nav{display:flex;gap:4px 14px;flex-wrap:wrap;margin-left:auto;font-size:14px}
+.nav a{text-decoration:none;color:var(--ink2);padding:2px 0;border-bottom:2px solid transparent}
+.nav a:hover,.nav a.on{color:var(--ink);border-bottom-color:var(--lime)}
+button.lang{font:500 12px/1 var(--mono);color:var(--ink2);background:none;border:1px solid var(--line);border-radius:999px;padding:6px 10px;cursor:pointer}
+button.lang:hover{color:var(--ink);border-color:var(--ink2)}
+
+main{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+h1,h2,h3{line-height:1.3}
+h2{font-size:20px;margin:0 0 12px;display:flex;align-items:baseline;gap:10px}
+h2 .no{font:700 12px/1 var(--mono);background:var(--ink);color:var(--bg);padding:4px 6px;border-radius:4px}
+.sec{margin:36px 0 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px}
+.dim{color:var(--ink2)}
+.small{font-size:13.5px;color:var(--ink2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0;padding:0;list-style:none}
+.chips li{font:500 12.5px/1.2 var(--mono);border:1px solid var(--ink);border-radius:999px;padding:5px 9px}
+.chips li.hot{background:var(--lime);color:var(--lcdink);border-color:var(--lcdink)}
+.lcd{background:var(--lcd);color:var(--lcdink);border-radius:10px;border:2px solid var(--lcdink)}
+.pill{display:inline-block;font:700 12px/1 var(--mono);padding:4px 7px;border-radius:5px;background:var(--lime);color:var(--lcdink)}
+.pill.red{background:var(--red);color:#fff}
+
+/* the install page */
+.hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:28px;align-items:center}
+@media (max-width:760px){.hero{grid-template-columns:1fr;gap:20px}}
+.hero h1{font:800 clamp(40px,8vw,64px)/1 var(--mono);letter-spacing:.02em;margin:0}
+.hero h1 .fn{background:var(--lime);color:var(--lcdink);padding:0 .12em;border-radius:6px}
+.hero .sub{font-size:15px;color:var(--ink2);margin:10px 0 0}
+.hero .one{font-size:clamp(19px,2.6vw,23px);line-height:1.5;margin:18px 0 0;font-weight:600}
+.hero .one em{font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--lime) 80%,transparent) 62%)}
+.shots{position:relative}
+.shots img{display:block;width:100%;height:auto;image-rendering:pixelated;border-radius:10px;border:3px solid var(--lcdink);
+           box-shadow:0 10px 30px -12px rgba(0,0,0,.35)}
+.shots img+img{position:absolute;width:46%;right:-8px;bottom:-14px;border-width:2px}
+@media (max-width:760px){.shots{max-width:360px;margin:0 auto 14px}}
+.shots figcaption{font-size:12px;color:var(--ink3);margin-top:10px;padding-right:50%}
+
+.install{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+@media (max-width:760px){.install{grid-template-columns:1fr}}
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 12px 36px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:24px;height:24px;border-radius:50%;
+  background:var(--ink);color:var(--bg);font:700 13px/24px var(--mono);text-align:center}
+ol.steps li b{display:block}
+ol.steps li span{color:var(--ink2);font-size:14.5px}
+.go-box{display:flex;flex-direction:column;gap:12px}
+.ver{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font:600 14px/1.3 var(--mono)}
+button#go{font:800 18px/1 var(--mono);letter-spacing:.06em;background:var(--lime);color:var(--lcdink);border:2px solid var(--lcdink);
+  border-radius:12px;padding:18px 16px;width:100%;cursor:pointer;box-shadow:0 4px 0 var(--lcdink);transition:transform .06s,box-shadow .06s}
+button#go:hover:not(:disabled){filter:brightness(1.04)}
+button#go:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--lcdink)}
+button#go:disabled{background:var(--line);color:var(--ink3);border-color:var(--line);box-shadow:none;cursor:default}
+progress{-webkit-appearance:none;appearance:none;width:100%;height:10px;border:2px solid var(--lcdink);border-radius:6px;background:var(--lcd);overflow:hidden}
+progress::-webkit-progress-bar{background:var(--lcd)}
+progress::-webkit-progress-value{background:var(--lcdink)}
+progress::-moz-progress-bar{background:var(--lcdink)}
+#status{margin:0;min-height:1.7em;font-weight:600;font-variant-numeric:tabular-nums}
+#log{margin:0;font:11.5px/1.45 var(--mono);white-space:pre-wrap;max-height:150px;overflow:auto;padding:8px 10px;min-height:44px}
+#log:empty::before{content:"log";opacity:.45}
+.warn{border-left:4px solid var(--red);padding:2px 0 2px 12px;font-size:14.5px}
+.meta{font:12px/1.5 var(--mono);color:var(--ink3);word-break:break-all}
+button.ed{font:inherit;font-size:14px;background:none;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+
+.log-list{margin:0;padding:0;list-style:none}
+.log-list>li{display:grid;grid-template-columns:76px minmax(0,1fr);gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.log-list>li:first-child{border-top:0;padding-top:0}
+.log-list .v{font:700 15px/1.6 var(--mono)}
+.log-list .v small{display:block;font:400 11.5px/1.3 var(--mono);color:var(--ink3)}
+.log-list ul{margin:0;padding-left:18px}
+.log-list li li{margin:0 0 3px}
+.log-list>li.now .v{color:var(--red)}
+
+.back{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.back{grid-template-columns:1fr}}
+.back .card h3{margin:0 0 6px;font-size:16px}
+.back .card p{margin:0;font-size:14.5px;color:var(--ink2)}
+.back kbd{font-size:13px;border:1px solid var(--ink2);border-bottom-width:3px;border-radius:5px;padding:0 5px;color:var(--ink)}
+details.stock{margin-top:14px}
+details.stock summary{cursor:pointer;font-weight:600}
+details.stock p{margin:8px 0;font-size:14px}
+button#stock-go{font:600 14px/1 var(--sans);background:var(--card);color:var(--ink);border:1px solid var(--ink2);border-radius:10px;padding:11px 16px;cursor:pointer}
+button#stock-go:disabled{color:var(--ink3);border-color:var(--line);cursor:default}
+
+.more{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.more{grid-template-columns:1fr}}
+.more a{display:block;text-decoration:none;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.more a:hover{border-color:var(--ink);color:inherit}
+.more a b{display:block;font-size:16px}
+.more a span{font-size:14px;color:var(--ink2)}
+.more a .pill{margin-left:6px;vertical-align:2px}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+footer p{margin:0 0 8px}
 </style>
 </head>
 <body>
+<header class="bar"><div class="in">
+  <a class="brand" href="./"><svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="6" fill="#c4e45a" stroke="#1d1d1b" stroke-width="2"/><path d="M6 25V9c1.6 8 3.6 12.6 6.5 14.5V12c1.6 6.2 3.4 9.8 6.5 11.2V15c1.5 4 3.3 6.6 7 7.6" fill="none" stroke="#1d1d1b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="26" cy="9" r="3" fill="#d8204a"/></svg><span>FN ACID<br><small>函数 Acid · FM-1</small></span></a>
+  <nav class="nav">
+    <a class="on" href="./"><span data-l="zh">安装</span><span data-l="en">Install</span></a>
+    <a href="guide.html"><span data-l="zh">上机说明</span><span data-l="en">Guide (中文)</span></a>
+    <a href="editor/"><span data-l="zh">编辑器原型</span><span data-l="en">Editor (preview)</span></a>
+    <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="lang" id="lang" type="button"></button>
+</div></header>
+
 <main>
-  <div class="top"><div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" width="760" height="260" role="img" aria-label="SLOOP">
-<rect width="760" height="260" fill="#000"/>
-<path d="M59.29 200.71 A100.00 100.00 0 1 1 200.71 200.71" fill="none" stroke="#F2F2F2" stroke-width="12" stroke-linecap="round"/>
-<rect x="95.00" y="46.00" width="10" height="136.00" rx="5" fill="#F2F2F2"/>
-<polygon points="111.00,50.00 111.00,50.00 131.34,75.00 111.00,75.00" fill="#287CFF"/>
-<polygon points="111.00,81.00 136.22,81.00 156.56,106.00 111.00,106.00" fill="#1ECC70"/>
-<polygon points="111.00,112.00 161.44,112.00 181.78,137.00 111.00,137.00" fill="#FFC618"/>
-<polygon points="111.00,143.00 186.66,143.00 207.00,168.00 111.00,168.00" fill="#FF621A"/>
-<rect x="66.00" y="192.00" width="128" height="12" rx="6" fill="#F2F2F2"/>
-<path d="M290.88 130.00 A14.88 15.00 0 1 1 304.37 108.66" fill="none" stroke="#F2F2F2" stroke-width="12" stroke-linecap="round"/>
-<path d="M290.88 130.00 A14.88 15.00 0 1 1 277.39 151.34" fill="none" stroke="#F2F2F2" stroke-width="12" stroke-linecap="round"/>
-<line x1="337.76" y1="68.00" x2="337.76" y2="160.00" stroke="#F2F2F2" stroke-width="12" stroke-linecap="round"/>
-<circle cx="399.76" cy="130.00" r="30.00" fill="none" stroke="#F2F2F2" stroke-width="12"/>
-<circle cx="489.76" cy="130.00" r="30.00" fill="none" stroke="#F2F2F2" stroke-width="12"/>
-<circle cx="579.76" cy="130.00" r="30.00" fill="none" stroke="#F2F2F2" stroke-width="12"/>
-<line x1="549.76" y1="130.00" x2="549.76" y2="196.00" stroke="#F2F2F2" stroke-width="12" stroke-linecap="round"/>
-</svg>
-</div><button class="lang" id="lang"></button></div>
-  <div class="strip"><i></i><i></i><i></i><i></i></div>
-  
-  
-  <h1>FN ACID 0.32 test</h1><div style="background:#c4e45a;color:#1d1d1b;padding:12px 14px;border-radius:10px;margin:12px 0;font:15px/1.6 system-ui,sans-serif"><b>FN ACID 0.32 test</b> (Function Acid, built on Dinghy / SLOOP / Felucca, GPL-3.0). This page is SLOOP 2.7.1&#39;s installer pointed at the FN ACID package. Back up SLOOP first (SLOOP editor: Projects &rarr; Backup). To go back: <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP&#39;s installer</a> or <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">the FM-1 Firmware Hub</a>. Stuck: hold OCT&minus; while switching on (USB rescue), then install again.<br><b><a href="guide.html">中文说明：怎么刷、怎么玩</a></b> &middot; <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">source (GitHub)</a><br><small>Keep this tab in front while it writes: a tab in the background is slowed down by the browser.</small></div>
-  <p data-t="intro"></p>
-  <p data-t="warn"></p>
-  <p><button id="go" disabled data-t="install"></button></p>
-  <progress id="bar" max="100" value="0"></progress>
-  <p id="status"></p>
-  <pre id="log"></pre>
-  
-  
-  <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
-  <hr>
-  <p class="small" data-t="direct"></p>
-  <p class="small" data-t="beta"></p>
-  <p class="small"><span data-t="brick"></span>
-    <a href="https://github.com/kurogedelic/FM-1-transporter" target="_blank" rel="noopener">FM-1-transporter</a></p>
-  <details>
-    <summary data-t="stockTitle"></summary>
-    <p class="small" data-t="stockHelp"></p>
-    <p class="small"><a href="https://www.m-vave.com/download" target="_blank" rel="noopener">www.m-vave.com/download</a></p>
-    <p class="small" data-t="stockBackup"></p>
-    <p><a class="ed" href="https://isod89.github.io/sloop-fm1/webapp/editor/" target="_blank" rel="noopener" data-t="stockEditor"></a></p>
-    <p class="small"><label><input id="stock-saved" type="checkbox"> <span data-t="stockSaved"></span></label></p>
-    <p class="small"><label><span data-t="stockFile"></span><br><input id="stock-file" type="file" accept=".fwsc"></label></p>
-    <p><button id="stock-go" disabled data-t="stockGo"></button></p>
-    <p class="small" data-t="back"></p>
-  </details>
-  <p class="small">SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>.
-    Hold OCT− alone while switching on for USB rescue.<br>
-    Font: Terminus (Dimitar Toshkov Zhekov, SIL OFL 1.1). Samples: Versilian Studios VSCO-2 Community Edition and VCSL (CC0 1.0), and the Hügelton Sample Pack (© Hügelton Instruments, not CC0).<br>
-    M-VAVE and FM-1 are trademarks of their respective owners; SLOOP is not affiliated with them.<br>
-    <span data-t="license"></span> <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">github.com/hugelton/Felucca</a></p>
+  <section class="hero">
+    <div>
+      <h1><span class="fn">FN</span> ACID</h1>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.32 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.32 test</span></p>
+      <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
+      <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
+      <ul class="chips">
+        <li class="hot" data-l="zh">16 步 303 式音序</li><li class="hot" data-l="en">16 steps, the 303's way</li>
+        <li data-l="zh">4 轨 ACID · BIO · KICK · PERC</li><li data-l="en">4 tracks: ACID · BIO · KICK · PERC</li>
+        <li data-l="zh">8 条预设旋律</li><li data-l="en">8 preset lines</li>
+        <li data-l="zh">4 层梯形滤波</li><li data-l="en">4-pole ladder</li>
+        <li data-l="zh">录旋钮动作</li><li data-l="en">knob motion</li>
+        <li data-l="zh">按住 FX 的效果层</li><li data-l="en">hold-FX punch-ins</li>
+      </ul>
+    </div>
+    <figure class="shots" style="margin:0">
+      <img src="data:image/png;base64,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" width="480" height="480" alt="FN ACID 的 HOME 页：CUTOFF RESO ENV DECAY 四格，四条函数曲线，四条轨道">
+      <img src="data:image/png;base64,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" width="480" height="480" alt="FN ACID 的 STEPS 页：16 步，重音红色，滑音斜线">
+      <figcaption><span data-l="zh">FM-1 的屏幕（240×240，同一份固件代码在电脑上渲染的截图）</span><span data-l="en">The FM-1's screen (240×240), rendered on a computer from the same firmware code</span></figcaption>
+    </figure>
+  </section>
+
+  <section class="sec" id="install">
+    <h2><span class="no">01</span><span data-l="zh">安装</span><span data-l="en">Install</span></h2>
+    <div class="install">
+      <div class="card">
+        <ol class="steps">
+          <li data-l="zh"><b>先备份 SLOOP 的工程</b><span>SLOOP 编辑器 → Projects → Backup。FN ACID 读不了 SLOOP 的工程；刷回 SLOOP 后可以恢复。</span></li>
+          <li data-l="en"><b>Back up SLOOP first</b><span>SLOOP editor → Projects → Backup. FN ACID cannot read SLOOP's projects; restore them after going back.</span></li>
+          <li data-l="zh"><b>用 USB 线直接插电脑</b><span>要能传数据的线，不要经过 Hub 或转接器；FM-1 开机。关掉其它用 MIDI 的软件。</span></li>
+          <li data-l="en"><b>Plug the FM-1 straight into the computer</b><span>A data cable, no hub or adapter; switch it on. Close other apps that use MIDI.</span></li>
+          <li data-l="zh"><b>用电脑上的 Chrome 或 Edge 打开本页</b><span>要 Web MIDI。浏览器问 MIDI 权限时选“允许”。</span></li>
+          <li data-l="en"><b>Open this page in Chrome or Edge</b><span>It needs Web MIDI. Allow MIDI when the browser asks.</span></li>
+          <li data-l="zh"><b>按下面的按钮，等它走完</b><span>两三分钟。FM-1 会自己重启，屏幕变成荧光绿的 FN ACID。</span></li>
+          <li data-l="en"><b>Press the button and let it finish</b><span>Two or three minutes. The FM-1 restarts by itself into the lime FN ACID screen.</span></li>
+        </ol>
+        <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
+      </div>
+      <div class="card go-box">
+        <div class="ver"><span class="pill">FN ACID 0.32</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <button id="go" disabled data-t="install"></button>
+        <progress id="bar" max="100" value="0"></progress>
+        <p id="status" role="status" aria-live="polite"></p>
+        <pre id="log" class="lcd"></pre>
+        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 85cb2784e10c4493ee53a4547a6673d7050877b339ee9fbdc35bd79fc58fabdd</p>
+        <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
+        <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="changes">
+    <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
+    <div class="card">
+      <ul class="log-list">
+        <li class="now"><div class="v">0.32<small>2026-10-19</small></div><div><ul data-l="zh"><li>滤波器换成 303 那种 4 层梯形（声音更圆、共振更集中）；原来的 2 层 SVF 在 EDIT › ACID › TYPE</li><li>8 条预设旋律连音色一起载入：按住 HOME + 白键 9–16，或 STEPS 页拧 PRESETS</li><li>录旋钮动作（X0X 的做法）：播放时按 REC，拧 CUTOFF / RESO / ENV / DECAY，录进 4 小节</li><li>0.31 存过的状态会保留</li></ul><ul data-l="en"><li>A 303-style 4-pole ladder filter (rounder, a more focused resonance); the 2-pole SVF stays on EDIT › ACID › TYPE</li><li>8 preset lines, each with its sound: HOME held + white keys 9–16, or the PRESETS knob on STEPS</li><li>Knob motion (as X0X records it): REC while playing, turn CUTOFF / RESO / ENV / DECAY, 4 bars</li><li>A 0.31 save still loads</li></ul></div></li>
+        <li><div class="v">0.31<small>2026-10-19</small></div><div><ul data-l="zh"><li>到处只有一个版本号（安装页 = 开机画面）；网站上线 fn-acid.netlify.app</li><li>安装页提醒：写入时让标签页留在前台</li></ul><ul data-l="en"><li>One version number everywhere (this page = the start screen); the site on fn-acid.netlify.app</li><li>The installer asks to keep its tab in front while it writes</li></ul></div></li>
+        <li><div class="v">0.3<small>2026-10-19</small></div><div><ul data-l="zh"><li>DECAY 改成 303 的范围：按步模式 200 毫秒到 2 秒，屏幕显示毫秒</li><li>加了一点小混响（FX 按两下 = SPACE 页）</li><li>HOME + 白键 10（FILM）连视频里的音色一起载入</li><li>修了延时反馈过大时停不下来的问题</li></ul><ul data-l="en"><li>DECAY over a 303&#x27;s range on the steps: 200 ms to 2 s, shown in ms</li><li>A small room after the delay (FX twice = SPACE)</li><li>HOME + white key 10 (FILM) loads the film&#x27;s sound too</li><li>The delay no longer runs away at high FEEDBACK</li></ul></div></li>
+        <li><div class="v">0.2<small>2026-10-19</small></div><div><ul data-l="zh"><li>开机是一张空白页；ACID 改成按步写（音 / 连音 / 休止，重音、滑音），公式还在</li><li>延时换成视频里的附点八分乒乓回声</li><li>FX 层：按住 FX 再按住白键 = 效果一直在，松手恢复；10–14 直接对曲线做运算</li></ul><ul data-l="en"><li>A blank start; ACID plays 16 steps you write (note / tie / rest, accent, slide), the formula one knob away</li><li>The acid film&#x27;s dotted-eighth ping-pong delay</li><li>The FX layer: hold FX + a white key; keys 10–14 are operations on the curve (y + 12, mirror, x / 2, 2x)</li></ul></div></li>
+        <li><div class="v">0.1<small>2026-10-19</small></div><div><ul data-l="zh"><li>第一版：函数 Acid 的四轨引擎移植到 Dinghy 平台</li></ul><ul data-l="en"><li>The first build: Function Acid&#x27;s four-track engine on the Dinghy platform</li></ul></div></li>
+      </ul>
+      <p class="small" style="margin:12px 0 0"><span data-l="zh">从 0.3 起每次加 0.01；安装页和 FM-1 开机画面显示同一个号。完整记录在 </span><span data-l="en">Each update adds 0.01 from 0.3 on; this page and the FM-1's start screen show the same number. Full history on </span><a href="https://github.com/Electro-Dig/function-acid-fw/commits" target="_blank" rel="noopener">GitHub</a>.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="back">
+    <h2><span class="no">03</span><span data-l="zh">想回去 / 刷坏了</span><span data-l="en">Going back / if it goes wrong</span></h2>
+    <div class="back">
+      <div class="card"><h3>SLOOP</h3>
+        <p data-l="zh">打开 <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP 的安装页</a> 按 Install，再用 SLOOP 编辑器把备份恢复。</p>
+        <p data-l="en">Open <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP's installer</a>, press Install, then restore your backup in the SLOOP editor.</p></div>
+      <div class="card"><h3>FM-1 Firmware Hub</h3>
+        <p data-l="zh">在 <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a> 选任何一个 FM-1 固件（SLOOP、X0X、Felucca……）装回去。</p>
+        <p data-l="en">Pick any FM-1 firmware (SLOOP, X0X, Felucca …) on <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a>.</p></div>
+      <div class="card"><h3 data-l="zh">USB 救援模式</h3><h3 data-l="en">USB rescue</h3>
+        <p data-l="zh">开机就崩或黑屏：<b>按住 <kbd>OCT−</kbd> 再开机</b>，只剩升级通道，然后用本页或上面任何一个安装页重新刷。连续两次开机崩溃，它也会自己进救援模式。</p>
+        <p data-l="en">Crashes at start or a black screen: <b>hold <kbd>OCT−</kbd> while switching on</b> (only the update path runs), then install again from any installer. Two crashed starts in a row enter it by themselves.</p></div>
+    </div>
+    <details class="stock card">
+      <summary data-t="stockTitle"></summary>
+      <p class="small" data-t="stockHelp"></p>
+      <p class="small"><a href="https://www.m-vave.com/download" target="_blank" rel="noopener">www.m-vave.com/download</a></p>
+      <p class="small" data-t="stockBackup"></p>
+      <p class="small"><label><input id="stock-saved" type="checkbox"> <span data-t="stockSaved"></span></label></p>
+      <p class="small"><label><span data-t="stockFile"></span><br><input id="stock-file" type="file" accept=".fwsc"></label></p>
+      <p><button id="stock-go" disabled data-t="stockGo"></button></p>
+      <p class="small" data-t="back"></p>
+    </details>
+  </section>
+
+  <section class="sec" id="more">
+    <h2><span class="no">04</span><span data-l="zh">接下来</span><span data-l="en">Next</span></h2>
+    <div class="more">
+      <a href="guide.html"><b data-l="zh">上机说明（中文）</b><b data-l="en">The guide (Chinese)</b>
+        <span data-l="zh">怎么刷、从空白开始照视频摸索、每个键做什么、FX 层、请帮忙测试的事。</span>
+        <span data-l="en">Installing, starting from a blank page, every key, the FX layer, what to test.</span></a>
+      <a href="editor/"><b><span data-l="zh">编辑器</span><span data-l="en">Editor</span><span class="pill">preview</span></b>
+        <span data-l="zh">在大格子上写 16 步、载入 8 条预设、调音色、在浏览器里试听、导出 JSON。发到 FM-1 要等以后的固件。</span>
+        <span data-l="en">Write the 16 steps on a big grid, load the 8 lines, shape the sound, audition in the browser, export JSON. Sending to the FM-1 needs a later firmware.</span></a>
+      <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener"><b data-l="zh">源代码</b><b data-l="en">Source</b>
+        <span data-l="zh">GitHub：Electro-Dig/function-acid-fw，GPL-3.0。可以自己编译、改成你自己的固件。</span>
+        <span data-l="en">GitHub: Electro-Dig/function-acid-fw, GPL-3.0. Build it yourself, make it yours.</span></a>
+    </div>
+  </section>
+
+  <footer>
+    <p data-l="zh">FN ACID 是 Electro-Dig 做的固件，致敬 AA（@measure_plan）“trying to turn math into acid”。它建在 <a href="https://github.com/zvenson/dinghy" target="_blank" rel="noopener">Dinghy</a>（zvenson）上，Dinghy 沿用 <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a>（Leo Kuroshita @kurogedelic，Hügelton Instruments）和 <a href="https://github.com/isod89/sloop-fm1" target="_blank" rel="noopener">SLOOP</a>（isod89）的底层：开机、USB、刷机通道、救援模式。本页的安装代码就是 SLOOP 2.7.1 的网页安装器（来自 Felucca），一字未改，只换了要装的包和显示的文字。</p>
+    <p data-l="en">FN ACID is a firmware by Electro-Dig, after AA (@measure_plan), “trying to turn math into acid”. It is built on <a href="https://github.com/zvenson/dinghy" target="_blank" rel="noopener">Dinghy</a> (zvenson), which keeps the platform of <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> (Leo Kuroshita @kurogedelic, Hügelton Instruments) and <a href="https://github.com/isod89/sloop-fm1" target="_blank" rel="noopener">SLOOP</a> (isod89): start-up, USB, the update path, the rescue. The installer code on this page is SLOOP 2.7.1's web installer (from Felucca), unchanged but for the package and the words it shows.</p>
+    <p><span data-t="license"></span> <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">github.com/Electro-Dig/function-acid-fw</a> · <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">github.com/hugelton/Felucca</a></p>
+    <p><span data-l="zh">M-VAVE 和 FM-1 是其各自所有者的商标；FN ACID 与他们没有关联。</span><span data-l="en">M-VAVE and FM-1 are trademarks of their respective owners; FN ACID is not affiliated with them.</span></p>
+  </footer>
 </main>
 <script type="module">
 // SPDX-License-Identifier: GPL-3.0-only
@@ -403,80 +554,98 @@ class Updater {
 
 const $ = (id) => document.getElementById(id);
 const TEXT = {
-  ja: {
-    intro: "FM-1 を USB で接続してください。（Chrome か Edge で使えます）",
-    warn: "書き込み中は USB を抜かないでください。",
-    install: "インストール", other: "English",
-    editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
-    edOffline: "エディタをダウンロード（パソコンでインターネットなしで使う：ファイルを Chrome / Edge で開く）",
-    appInstall: "アプリとしてインストール（エディタとインストーラーがオフラインで使える・Android も）",
-    direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
-    brick: "万一インストールに失敗して起動しなくなった場合は、復旧に Transporter が必要です:",
-    beta: "これはベータ版で、不安定な場合があります。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
-    back: "公式ファームウェアに戻すには、M-VAVE 公式のアップデーター M-UPGRADE（Downloads → PC Software → M-UPGRADE）と公式ファームウェア（PC Firmware → FM-1 V15）が必要です。",
-    nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。", loadfail: "読み込めませんでした: ",
-    start: "開始します", verify: "確認中", loader: "書き込みモードに切り替え中", write: "書き込み中",
-    reboot: "再起動中", done: "完了しました", stopped: "途中で止まりました。USB を挿し直してもう一度押してください。",
-    error: "エラー: ",
-    denied: "MIDI（SysEx）の使用が許可されませんでした。アドレスバーのサイト設定で MIDI を許可して、もう一度押してください。",
-    notfound: "FM-1 が見つかりません。USB ケーブル（データ通信用か）を確かめ、MIDI を使う他のアプリを閉じてから、もう一度押してください。",
-    model: "接続されている機器は FM-1 ではありません。",
-    lost: "USB の接続が切れました。挿し直してもう一度押してください。",
-    noloader: "書き込みモードの FM-1 が見つかりません。USB を挿し直してもう一度押してください（終わるまで書き込みモードのままです）。",
-    noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
-    mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
-    foreign: "FM-1 は別のファームウェアの書き込みモードです。そのアップデーター（M-UPGRADE）で書き込みを終えてから、もう一度インストールしてください: ",
-    badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
-    leave: "書き込み中です。ページを閉じないでください。",
-    license: "GPL-3.0、無保証。ソース:",
-    stockTitle: "公式ファームウェア（V15）に戻す",
-    stockHelp: "M-VAVE のサイトから公式の FM-1 V15 をダウンロードし、中の FM-1.fwsc（変更していないもの）を選んでください。ファイルはこのブラウザの中で確認され、どこにも送られません。",
-    stockBackup: "公式ファームウェアは SLOOP の曲・プロジェクト・サンプルを開けません。先にエディタでバックアップを保存してください（Projects → Backup）。SLOOP を入れ直せば、エディタから復元できます。",
-    stockEditor: "エディタを開いてバックアップする", stockSaved: "バックアップをパソコンに保存しました",
-    stockFile: "公式の FM-1.fwsc", stockGo: "公式 V15 をインストール",
-    stockValid: "公式 V15 を確認しました", stockBad: "公式 V15 ではありません: ",
-    stockConfirm: "FM-1 に公式 V15 をインストールします。SLOOP の曲は公式ファームウェアでは開けません。バックアップは保存しましたか？",
-    stockFinish: "FM-1 は SLOOP の書き込みモードです。先に「インストール」で SLOOP の書き込みを終えてから、公式 V15 に戻してください。",
-    back: "M-VAVE のアップデーター M-UPGRADE（Downloads → PC Software）でも戻せます。FM-1 が見つからない場合は、MIDI を使う他のアプリとブラウザのタブを閉じてください。",
-  },
-  en: {
-    intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
-    warn: "Do not unplug the USB cable while writing.",
-    install: "Install", other: "日本語",
-    editor: "Editor (after installing: edit sounds and sequences from the computer)",
-    edOffline: "Download the editor to use it without internet on a computer (open the file in Chrome or Edge)",
-    appInstall: "Install the app (the editor and the installer offline, Android too)",
-    direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
-    brick: "If an install fails and the FM-1 no longer starts, recovering it needs a Transporter:",
-    beta: "This is a beta and may be unstable. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
-    back: "To go back to the official firmware you need M-VAVE's official updater, M-UPGRADE (Downloads → PC Software → M-UPGRADE), and the official firmware (PC Firmware → FM-1 V15).",
-    nomidi: "This browser cannot do it. Open the page in Chrome or Edge.", loadfail: "Could not load: ",
-    start: "Starting", verify: "Verifying", loader: "Switching to update mode", write: "Writing",
-    reboot: "Restarting", done: "Done", stopped: "Stopped. Replug the USB cable and press Install again.",
-    error: "Error: ",
-    denied: "MIDI (SysEx) access was not allowed. Allow MIDI in the site settings (address bar) and press Install again.",
-    notfound: "FM-1 not found. Check the USB cable (a data cable), close other apps that use MIDI, and press Install again.",
-    model: "The connected device is not an FM-1.",
-    lost: "The USB connection was lost. Replug it and press Install again.",
-    noloader: "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
-    noreturn: "The FM-1 did not come back. Power-cycle it.",
-    mismatch: "Written, but the FM-1 reports another version: ",
-    foreign: "The FM-1 is in the update mode of another firmware. Finish that update with its own updater (M-UPGRADE), then press Install again: ",
-    badpkg: "The file to install is damaged. Reload the page.",
-    leave: "Writing. Do not close the page.",
-    license: "GPL-3.0, no warranty. Source:",
-    stockTitle: "Return to the official firmware (V15)",
-    stockHelp: "Download the official FM-1 V15 from M-VAVE and select the FM-1.fwsc inside it, unmodified. The file is checked in this browser; it is not sent anywhere.",
-    stockBackup: "The official firmware cannot open SLOOP's music, projects or samples. Save a backup with the editor first (Projects → Backup); reinstall SLOOP and restore it from the editor whenever you want them back.",
-    stockEditor: "Open the editor to back up", stockSaved: "I saved a backup on this computer",
-    stockFile: "The official FM-1.fwsc", stockGo: "Install the official V15",
-    stockValid: "Official V15 verified", stockBad: "Not the official V15: ",
-    stockConfirm: "Install the official V15 on the FM-1? The official firmware cannot open SLOOP's music. Did you save a backup?",
-    stockFinish: "The FM-1 is in SLOOP's update mode. Press Install to finish the SLOOP update first, then return to the official V15.",
-    back: "M-VAVE's own updater, M-UPGRADE (Downloads → PC Software), works too. If it does not find the FM-1, close every other app and browser tab that uses MIDI.",
-  },
+ "zh": {
+  "intro": "用 USB 把 FM-1 直接接到电脑上（Chrome 或 Edge）。",
+  "warn": "写入时不要拔 USB 线。",
+  "install": "安装 FN ACID 0.32",
+  "other": "English",
+  "editor": "编辑器",
+  "edOffline": "下载编辑器",
+  "appInstall": "作为应用安装（离线也能用安装页）",
+  "direct": "USB 线直接插电脑，不需要 Probe 或 Transporter。",
+  "brick": "万一安装失败、机器起不来，先试 USB 救援模式（按住 OCT− 开机）；再不行需要 Transporter：",
+  "beta": "这是测试版，可能不稳定。自制固件造成的损坏或问题，作者不承担责任。",
+  "back": "也可以用 M-VAVE 自己的升级工具 M-UPGRADE（Downloads → PC Software）。找不到 FM-1 时，关掉其它用 MIDI 的软件和浏览器标签页。",
+  "nomidi": "这个浏览器做不了：请用电脑上的 Chrome 或 Edge 打开本页。",
+  "loadfail": "读不到安装包：",
+  "start": "开始",
+  "verify": "校验中",
+  "loader": "切换到升级模式",
+  "write": "写入中（标签页留在前台）",
+  "reboot": "重启中",
+  "done": "完成。FM-1 现在是 FN ACID 了",
+  "stopped": "中途停了。重新插一下 USB 线，再按一次安装。",
+  "error": "出错：",
+  "denied": "没有得到 MIDI（SysEx）权限。在地址栏的网站设置里允许 MIDI，再按一次安装。",
+  "notfound": "找不到 FM-1。检查 USB 线（要能传数据），关掉其它用 MIDI 的软件，再按一次。",
+  "model": "接上的设备不是 FM-1。",
+  "lost": "USB 连接断了。重新插上再按一次。",
+  "noloader": "没找到处在升级模式的 FM-1。重新插一下 USB 线再按一次（写完之前它一直停在升级模式）。",
+  "noreturn": "FM-1 没有回来：关机再开机。",
+  "mismatch": "写完了，但 FM-1 报告的是另一个版本：",
+  "foreign": "FM-1 正处在别的固件的升级模式里。先用那个固件自己的工具（M-UPGRADE）写完，再来这里安装：",
+  "badpkg": "要安装的文件坏了，请刷新页面。",
+  "leave": "正在写入，别关这个页面。",
+  "license": "GPL-3.0，不提供任何担保。源代码：",
+  "stockTitle": "回到官方固件（V15）",
+  "stockHelp": "从 M-VAVE 网站下载官方 FM-1 V15，选里面没改过的 FM-1.fwsc。文件只在这个浏览器里校验，不会上传到任何地方。",
+  "stockBackup": "官方固件读不了 SLOOP 的工程。要回 SLOOP 的话，先备份（SLOOP 编辑器 → Projects → Backup）。FN ACID 自己的状态只有一份设置，回官方后会丢。",
+  "stockEditor": "打开编辑器备份",
+  "stockSaved": "我已经把需要的备份存到电脑上了",
+  "stockFile": "官方的 FM-1.fwsc",
+  "stockGo": "安装官方 V15",
+  "stockValid": "已确认是官方 V15",
+  "stockBad": "不是官方 V15：",
+  "stockConfirm": "要给 FM-1 装官方 V15 吗？FN ACID 的状态和 SLOOP 的工程在官方固件里都读不了。备份存好了吗？",
+  "stockFinish": "FM-1 正停在 FN ACID / SLOOP 的升级模式里。先按“安装”把这次写完，再回官方 V15。"
+ },
+ "en": {
+  "intro": "Connect the FM-1 straight to the computer by USB (Chrome or Edge).",
+  "warn": "Do not unplug the USB cable while writing.",
+  "install": "Install FN ACID 0.32",
+  "other": "中文",
+  "editor": "Editor",
+  "edOffline": "Download the editor",
+  "appInstall": "Install as an app (the installer offline too)",
+  "direct": "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
+  "brick": "If an install fails and the FM-1 no longer starts, try the USB rescue first (hold OCT- at power-on); beyond that it needs a Transporter:",
+  "beta": "This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves.",
+  "back": "M-VAVE's own updater, M-UPGRADE (Downloads → PC Software), works too. If it does not find the FM-1, close every other app and browser tab that uses MIDI.",
+  "nomidi": "This browser cannot do it. Open the page in Chrome or Edge on a computer.",
+  "loadfail": "Could not load: ",
+  "start": "Starting",
+  "verify": "Verifying",
+  "loader": "Switching to update mode",
+  "write": "Writing (keep this tab in front)",
+  "reboot": "Restarting",
+  "done": "Done: the FM-1 runs FN ACID now",
+  "stopped": "Stopped. Replug the USB cable and press Install again.",
+  "error": "Error: ",
+  "denied": "MIDI (SysEx) access was not allowed. Allow MIDI in the site settings (address bar) and press Install again.",
+  "notfound": "FM-1 not found. Check the USB cable (a data cable), close other apps that use MIDI, and press Install again.",
+  "model": "The connected device is not an FM-1.",
+  "lost": "The USB connection was lost. Replug it and press Install again.",
+  "noloader": "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
+  "noreturn": "The FM-1 did not come back. Power-cycle it.",
+  "mismatch": "Written, but the FM-1 reports another version: ",
+  "foreign": "The FM-1 is in the update mode of another firmware. Finish that update with its own updater (M-UPGRADE), then press Install again: ",
+  "badpkg": "The file to install is damaged. Reload the page.",
+  "leave": "Writing. Do not close the page.",
+  "license": "GPL-3.0, no warranty. Source:",
+  "stockTitle": "Return to the official firmware (V15)",
+  "stockHelp": "Download the official FM-1 V15 from M-VAVE and select the FM-1.fwsc inside it, unmodified. The file is checked in this browser; it is not sent anywhere.",
+  "stockBackup": "The official firmware cannot open SLOOP's projects: back them up first if you will go back to SLOOP (SLOOP editor → Projects → Backup). FN ACID keeps one settings record; it is lost on the official firmware.",
+  "stockEditor": "Open the editor to back up",
+  "stockSaved": "I saved the backups I need on this computer",
+  "stockFile": "The official FM-1.fwsc",
+  "stockGo": "Install the official V15",
+  "stockValid": "Official V15 verified",
+  "stockBad": "Not the official V15: ",
+  "stockConfirm": "Install the official V15 on the FM-1? Neither FN ACID's state nor SLOOP's projects open there. Did you save your backups?",
+  "stockFinish": "The FM-1 is in FN ACID / SLOOP's update mode. Press Install to finish that first, then return to the official V15."
+ }
 };
-let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
+let lang = (navigator.language || "zh").toLowerCase().startsWith("en") ? "en" : "zh";
 const t = (k) => TEXT[lang][k];
 let lastKey = null, lastArg = "";
 function applyLang() {
@@ -485,12 +654,12 @@ function applyLang() {
   $("lang").textContent = t("other");
   if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
-$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+$("lang").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; applyLang(); });
 applyLang();
 /* the site without internet (SLOOP 2.6, webapp/sw.js): opened once online, the installer, the firmware and the
  * editor work offline too, still on https (Android: a downloaded file opens as content://, where Chrome refuses MIDI) */
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol))
-  /* no service worker */
+  { /* FN ACID: no service worker */ }
 {
   let ask = null;
   window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); ask = e; $("app").hidden = false; });
@@ -538,7 +707,7 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
       if (h !== meta.sha256) { sayK("badpkg"); log(`sha256 ${h}, expected ${meta.sha256}`); return; }
     }
     image = logicalImage(pkg);
-    say(`FN ACID ${meta.version}  (FM-1_956)`);
+    say(`FN ACID ${meta.version} · ${meta.product} · ready`);
     lockAll(writing);
   } catch (e) { sayK("loadfail", e.message); }
 })();

@@ -1,0 +1,758 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     FN ACID editor, an offline prototype: ACID's 16 steps, the 8 preset lines (PATS in firmware/src/dinghy.c), the main
+     sound knobs, a Web Audio audition that follows the firmware's voice (eval_steps, cutoff_at, the 4-pole ladder / SVF,
+     the ping-pong delay, the small room, the 4/4 kick and the hat), JSON export / import. Nothing is sent to the FM-1:
+     that needs the editor protocol of docs/editor-design.md in a later firmware. -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FN ACID 编辑器</title>
+<meta name="description" content="FN ACID 编辑器（离线原型）：写 ACID 的 16 步、载入 8 条预设旋律、调音色、在浏览器里试听、导出 / 导入 JSON。">
+<meta name="theme-color" content="#c4e45a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22%2F%3E%3C%2Fsvg%3E">
+<style>
+:root{--bg:#efeee8;--card:#fbfaf6;--ink:#1d1d1b;--ink2:#5b5a55;--ink3:#8d8a82;--line:#d9d6cc;
+      --lcd:#ceea70;--lime:#c4e45a;--lcdink:#1d1d1b;--red:#d8204a;
+      --mono:ui-monospace,"SFMono-Regular","Cascadia Mono",Consolas,Menlo,monospace;
+      --sans:system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;--line:#34343a;--red:#ff4f73;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;--line:#34343a;--red:#ff4f73;color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans);overflow-x:hidden}
+a{color:inherit;text-underline-offset:3px}
+a:hover{color:var(--red)}
+#nl-badge-frame{display:none!important}
+.bar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar .in{max-width:1080px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none;font:700 17px/1 var(--mono);letter-spacing:.04em;color:var(--ink)}
+.brand svg{width:28px;height:28px;flex:none}
+.brand small{font:500 12px/1 var(--sans);color:var(--ink2);letter-spacing:0}
+.nav{display:flex;gap:4px 14px;flex-wrap:wrap;margin-left:auto;font-size:14px}
+.nav a{text-decoration:none;color:var(--ink2);border-bottom:2px solid transparent}
+.nav a:hover,.nav a.on{color:var(--ink);border-bottom-color:var(--lime)}
+main{max-width:1080px;margin:0 auto;padding:18px 16px 64px}
+h1{font:800 24px/1.25 var(--sans);margin:0}
+h2{font:700 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin:0 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+h2 b{font:600 15px/1.2 var(--sans);letter-spacing:0;text-transform:none;color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.sec{margin-top:14px}
+.dim{color:var(--ink2)} .small{font-size:13px;color:var(--ink2)}
+.pill{display:inline-block;font:700 12px/1 var(--mono);padding:4px 7px;border-radius:5px;background:var(--lime);color:var(--lcdink)}
+.pill.red{background:var(--red);color:#fff}
+
+.offline{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:2px dashed var(--red);border-radius:12px;padding:10px 14px;margin:12px 0 0}
+.offline p{margin:0;flex:1 1 300px;font-size:14px}
+button{font:inherit}
+.btn{font:600 14px/1 var(--sans);border:1px solid var(--ink2);background:var(--card);color:var(--ink);border-radius:999px;padding:9px 14px;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.big{background:var(--lime);color:var(--lcdink);border:2px solid var(--lcdink);font:800 15px/1 var(--mono);padding:11px 18px;box-shadow:0 3px 0 var(--lcdink)}
+.btn.big.on{background:var(--lcdink);color:var(--lime)}
+.btn.sm{padding:6px 10px;font-size:13px}
+
+input#vol{accent-color:var(--lcdink)}
+.transport{display:flex;gap:10px 16px;align-items:center;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:2px;font:600 11px/1.2 var(--mono);color:var(--ink2);letter-spacing:.04em}
+.field select,.field input[type=number]{font:600 15px/1.2 var(--mono);color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-width:76px}
+.tog{display:inline-flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;user-select:none}
+.tog input{accent-color:var(--lcdink);width:16px;height:16px}
+
+.lines{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px}
+@media (max-width:900px){.lines{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:460px){.lines{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.line{text-align:left;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:8px 9px;cursor:pointer;min-width:0}
+.line:hover{border-color:var(--ink)}
+.line.on{background:var(--lime);color:var(--lcdink);border-color:var(--lcdink)}
+.line b{display:block;font:800 13px/1.2 var(--mono)}
+.line small{display:block;font:500 11px/1.3 var(--mono);opacity:.7}
+.line span{display:block;font-size:12px;line-height:1.35;margin-top:3px;opacity:.85}
+
+.roll-wrap{background:var(--lcd);border:2px solid var(--lcdink);border-radius:12px;padding:8px 8px 6px;color:var(--lcdink)}
+.roll-head{display:flex;justify-content:space-between;align-items:center;font:700 13px/1.2 var(--mono);margin:0 0 6px;gap:8px;flex-wrap:wrap}
+canvas#roll{display:block;width:100%;touch-action:none;cursor:crosshair}
+.rows{display:grid;grid-template-columns:var(--gut) repeat(16,minmax(0,1fr));gap:0;margin-top:4px}
+.rows .lab{font:700 10.5px/26px var(--mono);white-space:nowrap;overflow:hidden}
+.rows button{height:26px;margin:1px;border:1.5px solid var(--lcdink);border-radius:4px;background:transparent;color:var(--lcdink);
+  font:700 11px/1 var(--mono);cursor:pointer;padding:0;min-width:0}
+.rows button.on{background:var(--lcdink);color:var(--lime)}
+.rows button.acc.on{background:#d8204a;border-color:#d8204a;color:#fff}
+.rows button.off{opacity:.3}
+.rows .num{font:700 11px/18px var(--mono);text-align:center}
+.rows .num.now{background:var(--lcdink);color:var(--lime);border-radius:3px}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+.knobs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:700px){.knobs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.grp{margin-top:12px}
+.grp:first-child{margin-top:0}
+.cell{border:2px solid var(--lcdink);border-radius:8px;background:var(--lcd);color:var(--lcdink);padding:6px 8px 4px;min-width:0}
+.cell .k{font:700 11px/1.2 var(--mono);display:flex;justify-content:space-between;gap:4px}
+.cell .k i{font-style:normal;opacity:.6;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell .v{font:700 20px/1.25 var(--mono);white-space:nowrap}
+.cell input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;margin:0;cursor:pointer}
+.cell input[type=range]::-webkit-slider-runnable-track{height:5px;background:color-mix(in srgb,var(--lcdink) 22%,transparent);border-radius:2px}
+.cell input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:16px;margin-top:-5.5px;background:var(--lcdink);border-radius:2px}
+.cell input[type=range]::-moz-range-track{height:5px;background:color-mix(in srgb,var(--lcdink) 22%,transparent);border-radius:2px}
+.cell input[type=range]::-moz-range-thumb{width:12px;height:16px;background:var(--lcdink);border:0;border-radius:2px}
+.cell input[type=range]:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.cell.main{background:var(--lime)}
+
+.io{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+textarea#json{width:100%;min-height:120px;font:12px/1.45 var(--mono);background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:10px;resize:vertical}
+.two{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+footer{margin-top:28px;font-size:12.5px;color:var(--ink3)}
+#msg{min-height:1.4em;font-size:13px;margin:6px 0 0}
+</style>
+</head>
+<body>
+<header class="bar"><div class="in">
+  <a class="brand" href="../"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="6" fill="#c4e45a" stroke="#1d1d1b" stroke-width="2"/><path d="M6 25V9c1.6 8 3.6 12.6 6.5 14.5V12c1.6 6.2 3.4 9.8 6.5 11.2V15c1.5 4 3.3 6.6 7 7.6" fill="none" stroke="#1d1d1b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="26" cy="9" r="3" fill="#d8204a"/></svg><span>FN ACID<br><small>函数 Acid · FM-1</small></span></a>
+  <nav class="nav"><a href="../">安装</a><a href="../guide.html">上机说明</a><a class="on" href="./">编辑器原型</a><a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">GitHub</a></nav>
+</div></header>
+<main>
+  <h1>编辑器 <span class="pill">preview</span></h1>
+  <div class="offline" role="note">
+    <span class="pill red">离线原型</span>
+    <p><b>现在只在浏览器里出声，不连 FM-1。</b>把这里写的线发到 FM-1、从 FM-1 读回来，需要以后的 FN ACID 固件加上编辑器协议（设计见 <a href="https://github.com/Electro-Dig/function-acid-fw/blob/main/docs/editor-design.md" target="_blank" rel="noopener">docs/editor-design.md</a>）。试听是照固件的算法用 Web Audio 重写的，接近但不完全等于机器上的声音。</p>
+    <button class="btn" disabled title="需要以后的固件版本（编辑器协议）">发送到 FM-1（以后的固件）</button>
+  </div>
+
+  <section class="sec card">
+    <div class="transport">
+      <button class="btn big" id="play">▶ 播放</button>
+      <label class="field">TEMPO<input id="bpm" type="number" min="80" max="170" step="1"></label>
+      <label class="field">ROOT<select id="root"></select></label>
+      <label class="field">LENGTH<input id="slen" type="number" min="1" max="16" step="1"></label>
+      <label class="field">SWING %<input id="swing" type="number" min="0" max="40" step="1"></label>
+      <label class="field">TRANSPOSE<input id="strans" type="number" min="-12" max="12" step="1"></label>
+      <label class="tog"><input type="checkbox" id="kickOn"> KICK 4/4</label>
+      <label class="tog"><input type="checkbox" id="percOn"> PERC</label>
+      <label class="tog"><input type="checkbox" id="acidMute"> 静音 ACID</label>
+      <label class="field" style="min-width:110px">音量 VOLUME<input id="vol" type="range" min="0" max="100" value="70"></label>
+    </div>
+  </section>
+
+  <section class="sec card">
+    <h2>PRESETS <b>8 条预设旋律（连音色一起载入，和机器上 HOME + 白键 9–16 一样）</b></h2>
+    <div class="lines" id="lines"></div>
+  </section>
+
+  <section class="sec">
+    <div class="roll-wrap">
+      <div class="roll-head"><span id="rollTitle">STEPS · 16</span><span id="rollHint">点格子 = 写音 · 点同一个音 = 休止 · 拖动 = 一笔画过去</span></div>
+      <canvas id="roll" aria-label="16 步的钢琴卷帘：横轴是步，纵轴是音高"></canvas>
+      <div class="rows" id="rows"></div>
+    </div>
+    <div class="tools">
+      <button class="btn sm" id="gen" title="机器上：STEPS 页按 OCT+">OCT+ 写一条新的</button>
+      <button class="btn sm" id="mut" title="机器上：STEPS 页按 OCT−">OCT− 变异 2–3 步</button>
+      <button class="btn sm" id="shl">← 左移一步</button>
+      <button class="btn sm" id="shr">右移一步 →</button>
+      <button class="btn sm" id="up1">+1 半音</button>
+      <button class="btn sm" id="dn1">−1 半音</button>
+      <button class="btn sm" id="up12">+12</button>
+      <button class="btn sm" id="dn12">−12</button>
+      <button class="btn sm" id="clr">清空（只剩根音）</button>
+      <button class="btn sm" id="undo" disabled>撤销</button>
+    </div>
+  </section>
+
+  <div class="two sec">
+    <section class="card">
+      <h2>SOUND <b>音色（和机器上的旋钮同名、同范围）</b></h2>
+      <div id="knobs"></div>
+    </section>
+    <section class="card">
+      <h2>FILE <b>导出 / 导入一条线</b></h2>
+      <p class="small" style="margin:0 0 10px">一条线 = 16 步 + 根音 / 长度 / 速度 + 音色，存成 JSON 文件，字段名就是固件 params_t 里的名字，以后可以原样发给 FM-1。浏览器也会记住你最后的状态（只在这台电脑上）。</p>
+      <div class="io">
+        <label class="field">名字 NAME<input id="name" type="text" maxlength="12" style="font:600 15px/1.2 var(--mono);color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:150px"></label>
+        <button class="btn" id="exp">导出 JSON</button>
+        <label class="btn" style="display:inline-block">导入 JSON<input id="imp" type="file" accept=".json,application/json" hidden></label>
+        <button class="btn sm" id="showJson">看 / 改 JSON</button>
+      </div>
+      <p id="msg" role="status" aria-live="polite"></p>
+      <div id="jsonBox" hidden>
+        <textarea id="json" spellcheck="false"></textarea>
+        <div class="io"><button class="btn sm" id="applyJson">用这段 JSON</button><button class="btn sm" id="copyJson">复制</button></div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <p>FN ACID 编辑器原型 · GPL-3.0 · 预设和算法来自 firmware/src/dinghy.c（FN ACID <span id="fwv">0.32</span>）。试听照固件的 ACID 声部写成：按步的音高 / 连音 / 滑音（约 22 ms 的滑）、303 范围的 DECAY（200 ms–2 s）、重音、4 层梯形或 2 层 SVF、附点八分乒乓延时、小混响、4/4 底鼓和镲。没有做的：BIO 动物轨、公式模式、旋钮动作、FX 层。</p>
+  </footer>
+</main>
+
+<script>
+'use strict';
+/* ================= the firmware's numbers (firmware/src/dinghy.c 0.32) ================= */
+const FW = '0.32';
+const NONE = 255, TIE = 128;
+const NOTE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const nname = m => NOTE[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
+const TAU_MS = [200, 233, 272, 316, 369, 430, 501, 584, 681, 794, 925, 1078, 1257, 1465, 1707, 1990, 2000];
+const tauMs = d => { const i = d >> 3, f = d & 7; return (TAU_MS[i] * (8 - f) + TAU_MS[i + 1] * f) >> 3; };
+// the parameters the editor reaches: params_t field, the device's label, min, max, kind (PM[] in dinghy.c)
+const L_WAVE = ['SAW', 'SQUARE', 'PULSE', 'SAW+SQ'], L_FILT = ['303 4P', 'SVF 2P'], L_DTIME = ['1/16', '1/8', '3/16', '1/4'],
+      L_HPAT = ['8TH', '16TH', '3-STEP', 'GALLOP', 'HALF', 'BAR'], L_OCT = { '-2': '-2', '-1': '-1', '0': '0', '1': '+1' };
+const PM = {
+  cut: ['CUTOFF', 0, 127], res: ['RESO', 0, 120], env: ['ENV AMT', 0, 127], aDec: ['DECAY', 0, 127, 'ms'],
+  aAcc: ['ACCENT', 0, 127], aGate: ['GATE', 10, 100, '%'], aGlide: ['GLIDE', 0, 127], aDrive: ['DRIVE', 0, 127],
+  aWave: ['WAVE', 0, 3, L_WAVE], aSub: ['SUB', 0, 127], aTune: ['OCTAVE', -2, 1, 'oct'], aLvl: ['ACID LVL', 0, 127],
+  aFilt: ['FILTER', 0, 1, L_FILT],
+  dTime: ['TIME', 0, 3, L_DTIME], dFb: ['FEEDBACK', 0, 110], dMix: ['MIX', 0, 127], dTone: ['TONE', 0, 127],
+  rMix: ['REVERB', 0, 127], mDrive: ['MASTER DRV', 0, 127],
+  kDuck: ['DUCK', 0, 127], kLvl: ['KICK LVL', 0, 127], hPat: ['PATTERN', 0, 5, L_HPAT], hLvl: ['PERC LVL', 0, 127],
+  bpm: ['TEMPO', 80, 170], root: ['ROOT', 21, 57], sLen: ['LENGTH', 1, 16], swing: ['SWING', 0, 40], sTrans: ['TRANSPOSE', -12, 12],
+};
+const GROUPS = [
+  ['HOME · 最主要的四个', ['cut', 'res', 'env', 'aDec'], true],
+  ['ENV · 重音 / 音长 / 滑音', ['aAcc', 'aGate', 'aGlide', 'aDrive']],
+  ['OSC · 振荡器 / 滤波', ['aWave', 'aSub', 'aTune', 'aFilt']],
+  ['DELAY · 乒乓回声', ['dTime', 'dFb', 'dMix', 'dTone']],
+  ['SPACE / 鼓', ['rMix', 'kDuck', 'hPat', 'aLvl']],
+];
+const ZH = { cut: '截止', res: '共振', env: '包络量', aDec: '衰减', aAcc: '重音', aGate: '音长', aGlide: '滑音', aDrive: '失真',
+  aWave: '波形', aSub: '次低音', aTune: '八度', aFilt: '滤波器', dTime: '时间', dFb: '反馈', dMix: '回声量', dTone: '回声明暗',
+  rMix: '混响', kDuck: '底鼓压 ACID', hPat: '镲的节奏', aLvl: 'ACID 音量' };
+// the 8 lines: {semitones above the root, accent, slide, 0 note / 1 rest / 2 tie}, then the sound (PATS[] in dinghy.c)
+const PATS = [
+  ['BLANK', '只有根音，自己从头写', [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],
+   [120, 40, 88, 72, 30, 70, 70, 30, 60, 54, 64, 40, 0]],
+  ['FILM', '讲解视频 drop 里那条线', [[0,1,0,0],[0,0,0,0],[12,0,1,0],[0,0,0,0],[3,0,0,0],[0,0,0,1],[12,1,0,0],[10,0,1,0],[0,0,0,0],[0,1,0,0],[7,0,0,0],[12,0,1,0],[12,0,0,0],[3,0,0,1],[15,1,0,0],[0,0,0,0]],
+   [120, 80, 100, 68, 18, 110, 50, 30, 52, 54, 64, 40, 1]],
+  ['ROLLER', '一直滚动的 16 分音，八度跳', [[0,1,0,0],[0,0,0,0],[12,0,1,0],[0,0,0,0],[0,0,0,0],[12,1,0,0],[0,0,0,0],[0,0,0,0],[0,1,0,0],[0,0,0,0],[12,0,1,0],[0,0,0,0],[3,0,0,0],[0,0,0,0],[12,1,1,0],[10,0,0,0]],
+   [128, 70, 92, 70, 24, 100, 45, 40, 40, 40, 64, 30, 1]],
+  ['SQUELCH', '音少、滑音长、共振大、尾巴长', [[0,1,0,0],[0,0,0,2],[12,0,1,0],[15,0,0,0],[0,0,0,1],[12,1,1,0],[7,0,0,0],[7,0,0,2],[0,0,0,0],[0,0,0,1],[3,1,1,0],[10,0,0,0],[12,0,0,0],[12,0,0,2],[15,1,0,0],[0,0,0,1]],
+   [124, 60, 112, 90, 60, 120, 60, 50, 52, 54, 64, 50, 1]],
+  ['DUB 3/16', '音很稀，专门留空给回声', [[0,1,0,0],[0,0,0,1],[0,0,0,1],[0,0,0,0],[0,0,0,1],[0,0,0,1],[12,0,1,0],[10,0,0,0],[0,0,0,1],[0,0,0,1],[7,1,0,0],[0,0,0,1],[0,0,0,1],[3,0,1,0],[0,0,0,0],[0,0,0,1]],
+   [118, 74, 96, 60, 40, 90, 55, 30, 90, 72, 50, 60, 0]],
+  ['ARP MINOR', '小调琶音上下走', [[0,1,0,0],[3,0,0,0],[7,0,0,0],[12,0,1,0],[15,0,0,0],[12,0,0,0],[7,0,0,0],[3,0,0,0],[0,1,0,0],[3,0,0,0],[7,0,0,0],[12,0,0,0],[17,1,1,0],[15,0,0,0],[12,0,0,0],[10,0,1,0]],
+   [130, 66, 100, 76, 30, 100, 50, 40, 45, 50, 64, 35, 1]],
+  ['HYPNO', '两个音 + 连音和休止，催眠式', [[0,1,0,0],[0,0,0,2],[0,0,0,1],[10,0,0,0],[0,0,0,0],[0,0,0,1],[0,1,0,0],[0,0,0,1],[0,0,0,0],[0,0,0,2],[0,0,0,1],[10,0,1,0],[12,0,0,0],[0,0,0,1],[0,1,0,0],[0,0,0,1]],
+   [125, 56, 104, 84, 48, 100, 50, 40, 56, 60, 64, 40, 0]],
+  ['RAVE', '快、八度、尖叫', [[0,1,0,0],[12,0,0,0],[0,0,0,0],[12,1,0,0],[0,0,0,0],[12,0,1,0],[15,0,0,0],[12,0,0,0],[0,1,0,0],[12,0,0,0],[0,0,0,0],[12,0,0,0],[3,1,1,0],[15,0,0,0],[10,0,1,0],[12,0,0,0]],
+   [136, 78, 110, 100, 20, 120, 40, 90, 35, 40, 64, 25, 1]],
+];
+
+/* ================= the state: params_t's fields, the same numbers ================= */
+const DEFAULTS = { root: 33, bpm: 120, sLen: 16, sTrans: 0, swing: 0, cut: 40, res: 88, env: 72, aDec: 60, aAcc: 70, aGate: 70,
+  aGlide: 0, aDrive: 30, aWave: 0, aSub: 0, aTune: 0, aLvl: 100, aFilt: 0, dTime: 2, dFb: 54, dMix: 60, dTone: 64, rMix: 40,
+  mDrive: 20, kDuck: 80, kLvl: 110, hPat: 0, hLvl: 64, kTop: 36, kTone: 0, kClick: 20, kDrive: 20, kPdec: 38, kBody: 60, kBase: 0,
+  hTone: 90, hDec: 30 };
+let S = { name: 'BLANK', p: { ...DEFAULTS }, lane: new Array(16).fill(DEFAULTS.root), accM: 0, sldM: 0, kickOn: true, percOn: true, acidMute: false, pat: 0 };
+const clampP = (k, v) => { const d = PM[k]; v = Math.round(Number(v)); if (!isFinite(v)) v = DEFAULTS[k] ?? 0; return d ? Math.max(d[1], Math.min(d[2], v)) : v; };
+const bit = (m, i) => (m >> i) & 1;
+
+function loadPattern(k) {                                   // load_pattern() in dinghy.c
+  const [name, , st, q] = PATS[k], p = S.p;
+  pushUndo();
+  S.pat = k; S.name = name; S.accM = 0; S.sldM = 0;
+  p.sLen = 16; p.sTrans = 0;
+  S.lane = st.map((t, i) => t[3] === 0 ? p.root + t[0] : t[3] === 2 && i ? (p.root + t[0]) | TIE : NONE);
+  st.forEach((t, i) => { if (t[1]) S.accM |= 1 << i; if (t[2]) S.sldM |= 1 << i; });
+  [p.bpm, p.cut, p.res, p.env, p.aDec, p.aAcc, p.aGate, p.aDrive, p.dMix, p.dFb, p.dTone, p.rMix, p.hPat] = q;
+  p.aWave = 0; p.aSub = 0; p.aTune = 0; p.aLvl = 100; p.aGlide = 0; p.dTime = 2; p.kDuck = 40;
+  S.kickOn = true; S.percOn = true; S.acidMute = false;
+  changed(true);
+}
+const L = () => Math.max(1, Math.min(16, S.p.sLen));
+function stepNote(i) {                                      // step_note(): the pitch a tie or a rest goes on with
+  const n = L();
+  for (let k = 0; k < n; k++) { const v = S.lane[(i + n - k) % n]; if (v !== NONE && !(v & TIE)) return v; }
+  return S.p.root;
+}
+const GEN_W = [0, 0, 0, 0, 0, 12, 12, 7, 3, 10, 15, 5];
+const rnd = n => Math.floor(Math.random() * n);
+function genSteps() {                                       // gen_steps(): OCT+ on SEQ > STEPS
+  pushUndo();
+  const n = L(), r0 = S.p.root; S.accM = 0; S.sldM = 0; S.lane = new Array(16).fill(NONE);
+  for (let i = 0; i < n; i++) {
+    const r = rnd(100);
+    if (i === 0) { S.lane[0] = r0; S.accM |= 1; continue; }
+    if (r < 20) continue;
+    if (r < 27 && S.lane[i - 1] !== NONE) S.lane[i] = stepNote(i - 1) | TIE; else S.lane[i] = r0 + GEN_W[rnd(12)];
+    if (rnd(100) < 28) S.accM |= 1 << i;
+    if (rnd(100) < 22) S.sldM |= 1 << i;
+  }
+  S.name = 'NEW ' + Math.random().toString(16).slice(2, 6).toUpperCase(); S.pat = -1; changed(true);
+}
+function mutateSteps() {                                    // mutate_steps(): OCT-
+  pushUndo();
+  const n = L(), r0 = S.p.root, k = 2 + rnd(2);
+  for (let j = 0; j < k; j++) {
+    const i = rnd(n), b = 1 << i;
+    switch (rnd(4)) {
+      case 0: S.lane[i] = r0 + GEN_W[rnd(12)]; break;
+      case 1: S.accM ^= b; break;
+      case 2: S.sldM ^= b; break;
+      default: S.lane[i] = S.lane[i] === NONE ? r0 + GEN_W[rnd(12)] : NONE;
+    }
+  }
+  S.pat = -1; changed(true);
+}
+const setNote = (i, n) => { S.lane[i] = Math.max(12, Math.min(96, n)); };   // step_set_note()
+
+/* ================= undo, saving in this browser ================= */
+const undo = [];
+const snap = () => JSON.stringify(S);
+function pushUndo() { undo.push(snap()); if (undo.length > 60) undo.shift(); $('undo').disabled = false; }
+function doUndo() { if (!undo.length) return; S = JSON.parse(undo.pop()); $('undo').disabled = !undo.length; changed(true); }
+function save() { try { localStorage.setItem('fn-acid-editor', snap()); } catch (_) {} }
+function restore() {
+  try { const t = localStorage.getItem('fn-acid-editor'); if (!t) return false; const o = JSON.parse(t); if (!o || !Array.isArray(o.lane) || o.lane.length !== 16) return false;
+    S = { ...S, ...o, p: { ...DEFAULTS, ...o.p } }; return true; } catch (_) { return false; }
+}
+
+/* ================= JSON: one line ================= */
+const PARAM_KEYS = ['root', 'sLen', 'sTrans', 'bpm', 'swing', 'cut', 'res', 'env', 'aDec', 'aAcc', 'aGate', 'aGlide', 'aDrive',
+  'aWave', 'aSub', 'aTune', 'aLvl', 'aFilt', 'dTime', 'dFb', 'dMix', 'dTone', 'rMix', 'mDrive', 'kDuck', 'kLvl', 'hPat', 'hLvl'];
+function toJSON() {
+  return { format: 'fn-acid-line', version: 1, firmware: FW, name: S.name,
+    steps: S.lane.map((v, i) => ({ gate: v === NONE ? 'rest' : v & TIE ? 'tie' : 'note',
+      note: v === NONE ? null : v & TIE ? null : nname(v & 127), midi: v === NONE || v & TIE ? null : v & 127,
+      accent: !!bit(S.accM, i), slide: !!bit(S.sldM, i) })),
+    params: Object.fromEntries(PARAM_KEYS.map(k => [k, S.p[k]])),
+    terms: { kick: S.kickOn, four: S.kickOn, perc: S.percOn },
+    raw: { lane0: S.lane.slice(), accM: S.accM, sldM: S.sldM } };
+}
+function midiOf(x) {
+  if (typeof x === 'number') return x;
+  const m = /^([A-Ga-g])(#|b)?(-?\d)$/.exec(String(x || '').trim()); if (!m) return null;
+  let n = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+  return n + (parseInt(m[3], 10) + 1) * 12;
+}
+function fromJSON(o) {
+  if (!o || o.format !== 'fn-acid-line' || !Array.isArray(o.steps)) throw new Error('不是 fn-acid-line 格式（format 字段）');
+  const p = { ...S.p };
+  for (const k of PARAM_KEYS) if (o.params && o.params[k] !== undefined) p[k] = clampP(k, o.params[k]);
+  const lane = new Array(16).fill(NONE); let accM = 0, sldM = 0;
+  o.steps.slice(0, 16).forEach((s, i) => {
+    if (s.gate === 'note') { const m = midiOf(s.midi ?? s.note); lane[i] = m == null ? p.root : Math.max(12, Math.min(96, m)); }
+    else if (s.gate === 'tie') lane[i] = TIE;            // the pitch is filled in below (the note it holds)
+    if (s.accent) accM |= 1 << i; if (s.slide) sldM |= 1 << i;
+  });
+  pushUndo();
+  S.p = p; S.lane = lane; S.accM = accM; S.sldM = sldM; S.name = String(o.name || 'IMPORT').slice(0, 12).toUpperCase(); S.pat = -1;
+  S.lane = S.lane.map((v, i) => v === TIE ? stepNote(i) | TIE : v);
+  if (o.terms) { S.kickOn = o.terms.kick !== false; S.percOn = o.terms.perc !== false; }
+  changed(true);
+}
+
+/* ================= the page ================= */
+const $ = id => document.getElementById(id);
+function say(t, bad) { $('msg').textContent = t; $('msg').style.color = bad ? 'var(--red)' : ''; }
+function fmt(k, v) {
+  const d = PM[k];
+  if (k === 'aDec') return tauMs(v) + 'MS';
+  if (Array.isArray(d[3])) return d[3][v];
+  if (d[3] === '%') return v + '%';
+  if (d[3] === 'oct') return L_OCT[v];
+  return String(v);
+}
+function buildKnobs() {
+  const box = $('knobs');
+  for (const [title, keys, main] of GROUPS) {
+    const g = document.createElement('div'); g.className = 'grp';
+    g.innerHTML = `<div class="small" style="margin:0 0 4px;font-family:var(--mono)">${title}</div><div class="knobs"></div>`;
+    for (const k of keys) {
+      const [lab, mn, mx] = PM[k], c = document.createElement('label');
+      c.className = 'cell' + (main ? ' main' : '');
+      c.innerHTML = `<div class="k"><span>${lab}</span><i>${ZH[k] || ''}</i></div><div class="v" id="v_${k}"></div>` +
+        `<input type="range" id="k_${k}" min="${mn}" max="${mx}" step="1" aria-label="${lab} ${ZH[k] || ''}">`;
+      g.querySelector('.knobs').appendChild(c);
+    }
+    box.appendChild(g);
+  }
+  for (const k of Object.keys(PM)) {
+    const el = $('k_' + k); if (!el) continue;
+    el.addEventListener('pointerdown', () => pushUndo());
+    el.addEventListener('keydown', () => { if (!el._u) { pushUndo(); el._u = 1; } });
+    el.addEventListener('input', () => { S.p[k] = clampP(k, el.value); $('v_' + k).textContent = fmt(k, S.p[k]); S.pat = -1; changed(); });
+  }
+}
+function buildLines() {
+  const box = $('lines');
+  PATS.forEach(([name, zh], k) => {
+    const b = document.createElement('button'); b.className = 'line'; b.type = 'button';
+    b.innerHTML = `<small>白键 ${k + 9}</small><b>${name}</b><span>${zh}</span>`;
+    b.addEventListener('click', () => { loadPattern(k); say(`载入了 ${name}：16 步 + 它的音色。`); });
+    box.appendChild(b);
+  });
+}
+function buildTransport() {
+  const r = $('root');
+  for (let m = 21; m <= 57; m++) { const o = document.createElement('option'); o.value = m; o.textContent = nname(m) + (m === 33 ? '（默认）' : ''); r.appendChild(o); }
+  r.addEventListener('change', () => {                     // a new root carries the line with it, as the semitones in PATS do
+    pushUndo(); const d = clampP('root', r.value) - S.p.root; S.p.root += d;
+    S.lane = S.lane.map(v => v === NONE ? v : (Math.max(12, Math.min(96, (v & 127) + d)) | (v & TIE))); changed();
+  });
+  for (const [id, k] of [['bpm', 'bpm'], ['slen', 'sLen'], ['swing', 'swing'], ['strans', 'sTrans']]) {
+    $(id).addEventListener('change', () => { pushUndo(); S.p[k] = clampP(k, $(id).value); changed(true); });
+  }
+  for (const id of ['kickOn', 'percOn', 'acidMute']) $(id).addEventListener('change', () => { S[id] = $(id).checked; changed(); });
+  $('vol').addEventListener('input', () => post());
+}
+function syncControls() {
+  for (const k of Object.keys(PM)) { const el = $('k_' + k); if (el) { el.value = S.p[k]; $('v_' + k).textContent = fmt(k, S.p[k]); } }
+  $('bpm').value = S.p.bpm; $('slen').value = S.p.sLen; $('swing').value = S.p.swing; $('strans').value = S.p.sTrans; $('root').value = S.p.root;
+  $('kickOn').checked = S.kickOn; $('percOn').checked = S.percOn; $('acidMute').checked = S.acidMute; $('name').value = S.name;
+  document.querySelectorAll('.line').forEach((b, k) => b.classList.toggle('on', k === S.pat));
+}
+function changed(all) {
+  if (all) syncControls();
+  else document.querySelectorAll('.line').forEach((b, k) => b.classList.toggle('on', k === S.pat));
+  drawRows(); drawRoll(); post(); save();
+  if (!$('jsonBox').hidden) $('json').value = JSON.stringify(toJSON(), null, 1);
+}
+
+/* ---- the step rows under the roll: gate (note / tie / rest), accent, slide, the step numbers */
+const GUT = 40;
+function drawRows() {
+  const box = $('rows'), n = L();
+  box.style.setProperty('--gut', GUT + 'px');
+  if (!box.childElementCount) {
+    const mk = (cls, txt) => { const d = document.createElement('div'); d.className = cls; d.textContent = txt; box.appendChild(d); return d; };
+    mk('lab', ''); for (let i = 0; i < 16; i++) mk('num', i + 1).id = 'num' + i;
+    for (const [row, lab] of [['gate', 'GATE'], ['acc', 'ACC'], ['sld', 'SLIDE']]) {
+      mk('lab', lab);
+      for (let i = 0; i < 16; i++) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = row; b.id = row + i; box.appendChild(b);
+        b.addEventListener('click', () => {
+          if (i >= L()) return;
+          pushUndo();
+          if (row === 'gate') {                              // KNOB2 on a held step: REST -> NOTE -> TIE -> REST
+            const v = S.lane[i];
+            if (v === NONE) setNote(i, stepNote(i)); else if (!(v & TIE)) S.lane[i] = stepNote((i + n - 1) % n) | TIE; else S.lane[i] = NONE;
+          } else if (row === 'acc') S.accM ^= 1 << i; else S.sldM ^= 1 << i;
+          S.pat = -1; changed();
+        });
+      }
+    }
+  }
+  for (let i = 0; i < 16; i++) {
+    const v = S.lane[i], off = i >= n, g = $('gate' + i), a = $('acc' + i), s = $('sld' + i);
+    g.textContent = v === NONE ? '—' : v & TIE ? '连' : '音'; g.classList.toggle('on', v !== NONE && !(v & TIE));
+    g.title = `第 ${i + 1} 步：${v === NONE ? '休止' : v & TIE ? '连音（延续前一个音）' : '音 ' + nname(v)}（点一下换）`;
+    a.textContent = '>'; a.classList.toggle('on', !!bit(S.accM, i)); a.title = `第 ${i + 1} 步重音`;
+    s.textContent = '/'; s.classList.toggle('on', !!bit(S.sldM, i)); s.title = `第 ${i + 1} 步滑到下一步`;
+    for (const e of [g, a, s, $('num' + i)]) e.classList.toggle('off', off);
+  }
+  $('rollTitle').textContent = `STEPS · ${n} · ROOT ${nname(S.p.root)} · ${S.name}`;
+}
+
+/* ---- the roll: the device's STEPS page, made big. Rows = pitches (the root - 12 .. + 24), columns = the 16 steps */
+const cv = $('roll'), g = cv.getContext('2d');
+let W = 0, H = 0, RH = 12, LO = 21, HI = 57, playStep = -1;
+function layout() {
+  const w = cv.clientWidth; if (!w) return;
+  RH = w < 520 ? 10 : 12; LO = S.p.root - 12; HI = S.p.root + 24;
+  H = (HI - LO + 1) * RH; W = w;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+const colW = () => (W - GUT) / 16;
+const yOf = m => (HI - Math.max(LO, Math.min(HI, m))) * RH;
+function drawRoll() {
+  if (LO !== S.p.root - 12 || W !== cv.clientWidth) layout();
+  if (!W) return;
+  const n = L(), cw = colW(), INK = '#1d1d1b', RED = '#d8204a';
+  g.fillStyle = '#ceea70'; g.fillRect(0, 0, W, H);
+  for (let m = LO; m <= HI; m++) {                          // the keys: darker rows for the black ones, a line on each root
+    const y = yOf(m);
+    if (isBlack(m)) { g.fillStyle = 'rgba(29,29,27,.07)'; g.fillRect(GUT, y, W - GUT, RH); }
+    if ((m - S.p.root) % 12 === 0) { g.fillStyle = 'rgba(29,29,27,.35)'; g.fillRect(GUT, y + RH - 1, W - GUT, 1); }
+    if ((m - S.p.root) % 12 === 0 || m % 12 === 0) {
+      g.fillStyle = (m - S.p.root) % 12 === 0 ? INK : 'rgba(29,29,27,.55)';
+      g.font = `700 ${Math.min(11, RH)}px ui-monospace,Consolas,monospace`; g.textBaseline = 'middle';
+      g.fillText(nname(m), 2, y + RH / 2 + .5);
+    }
+  }
+  for (let i = 0; i <= 16; i++) { g.fillStyle = i % 4 ? 'rgba(29,29,27,.12)' : 'rgba(29,29,27,.4)'; g.fillRect(GUT + i * cw, 0, 1, H); }
+  if (n < 16) { g.fillStyle = 'rgba(29,29,27,.18)'; g.fillRect(GUT + n * cw, 0, (16 - n) * cw, H); }
+  if (playStep >= 0) { g.fillStyle = 'rgba(29,29,27,.16)'; g.fillRect(GUT + playStep * cw, 0, cw, H); }
+  const gate = Math.max(.12, Math.min(1, S.p.aGate / 100));
+  const pos = [];                                            // each step's bar: x0, x1, y, accent
+  for (let i = 0; i < n; i++) {
+    const v = S.lane[i]; if (v === NONE) { pos.push(null); continue; }
+    const m = stepNote(i), y = yOf(m), x0 = GUT + i * cw;
+    const nv = S.lane[(i + 1) % n], held = (bit(S.sldM, i) && nv !== NONE) || (nv !== NONE && (nv & TIE) && n > 1);
+    const x1 = x0 + (held ? cw : Math.max(4, cw * gate - 2));
+    let ai = i, k = 0;                                       // the accent of the attack this step goes on from
+    while (k + 1 < n) { const j = (ai + n) % n, pj = (j + n - 1) % n, vj = S.lane[j], pv = S.lane[pj];
+      if (vj !== NONE && pv !== NONE && n >= 2 && ((vj & TIE) || bit(S.sldM, pj))) { ai = pj; k++; } else break; }
+    pos.push({ x0, x1, y, acc: bit(S.accM, (ai + n) % n), tie: !!(v & TIE) });
+  }
+  for (let i = 0; i < n; i++) {                              // the slides: a line from this step's end to the next one's pitch
+    const a = pos[i], b = pos[(i + 1) % n];
+    if (!a || !b || !bit(S.sldM, i) || i + 1 >= n) continue;
+    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.moveTo(a.x1 - 2, a.y + RH / 2); g.lineTo(b.x0 + Math.min(10, cw * .4), b.y + RH / 2); g.stroke();
+  }
+  for (let i = 0; i < n; i++) {
+    const a = pos[i]; if (!a) continue;
+    g.fillStyle = a.acc ? RED : INK;
+    g.fillRect(a.x0 + (a.tie ? 0 : 2), a.y + 1, a.x1 - a.x0 - (a.tie ? 0 : 2), RH - 2);
+    if (a.tie) { g.fillStyle = '#ceea70'; g.fillRect(a.x0, a.y + RH / 2 - .5, 2, 1); }
+  }
+  for (let i = 0; i < n; i++) if (!pos[i]) {                 // a rest: a dash on the root, as the device draws it
+    g.fillStyle = 'rgba(29,29,27,.45)'; g.fillRect(GUT + i * cw + cw * .35, yOf(S.p.root) + RH / 2 - 1, cw * .3, 2);
+  }
+  for (let i = 0; i < 16; i++) { const e = $('num' + i); if (e) e.classList.toggle('now', i === playStep); }
+}
+let drag = null;
+function hit(ev) {
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (x < GUT) return null;
+  return { i: Math.max(0, Math.min(15, Math.floor((x - GUT) / colW()))), m: HI - Math.max(0, Math.min(HI - LO, Math.floor(y / RH))) };
+}
+cv.addEventListener('pointerdown', ev => {
+  const h = hit(ev); if (!h || h.i >= L()) return;
+  cv.setPointerCapture(ev.pointerId); pushUndo();
+  const v = S.lane[h.i], same = v !== NONE && !(v & TIE) && v === h.m;
+  drag = { last: h.i, erase: same };                       // on the same note: a rest, and the drag rubs out
+  if (same) S.lane[h.i] = NONE; else { setNote(h.i, h.m); preview(h.m); }
+  S.pat = -1; changed();
+});
+cv.addEventListener('pointermove', ev => {
+  if (!drag) return; const h = hit(ev); if (!h || h.i >= L()) return;
+  if (h.i !== drag.last || (!drag.erase && S.lane[h.i] !== h.m)) {
+    drag.last = h.i;
+    if (drag.erase) S.lane[h.i] = NONE; else if (S.lane[h.i] !== h.m) { setNote(h.i, h.m); preview(h.m); }
+    changed();
+  }
+});
+const end = () => { drag = null; };
+cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+new ResizeObserver(() => { layout(); drawRoll(); }).observe(cv);
+
+/* ================= the sound: an AudioWorklet that runs the firmware's ACID voice and its clock ================= */
+const WORKLET = `
+const NONE = 255, TIE = 128, TAU_MS = ${JSON.stringify(TAU_MS)};
+const tauMs = d => { const i = d >> 3, f = d & 7; return (TAU_MS[i] * (8 - f) + TAU_MS[i + 1] * f) / 8; };
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+const sat = x => { x = x > 1 ? 1 : x < -1 ? -1 : x; return (3 * x - x * x * x) / 2; };   // sat() in dinghy.c
+const clip = x => x > 1 ? 1 : x < -1 ? -1 : x;
+const blep = (p, dt) => p < dt ? (p /= dt, p + p - p * p - 1) : p > 1 - dt ? (p = (p - 1) / dt, p * p + p + p + 1) : 0;
+const RV_LEN = [1116, 1188, 1277, 1356, 556, 441];
+class Acid extends AudioWorkletProcessor {
+  constructor(opt) {
+    super();
+    this.S = null; this.run = false; this.s = 0; this.ph = 0; this.ctr = 0; this.vol = .7;
+    this.aPh = 0; this.sPh = 0; this.aAmp = 0; this.aAmpT = 0; this.y1 = this.y2 = this.y3 = this.y4 = 0; this.lp = this.bp = 0;
+    this.kPh = 0; this.kAmp = 0; this.kAmpT = 0; this.kClk = 0; this.kLp = 0; this.duck = 1; this.kOn = 0;
+    this.hEnv = 0; this.hy = 0; this.hx = 0; this.nz = 22222;
+    this.N = 1 << 16; this.dL = new Float32Array(this.N); this.dR = new Float32Array(this.N); this.dw = 0; this.dlp = 0;
+    const sc = sampleRate / 44100; this.rl = RV_LEN.map(n => Math.round(n * sc)); this.rb = this.rl.map(n => new Float32Array(n)); this.ri = [0, 0, 0, 0, 0, 0]; this.rlp = [0, 0, 0, 0];
+    this.pv = -1; this.pvT = 0; this.pvAge = 0; this.lastPost = -1;
+    this.port.onmessage = e => { const d = e.data;
+      if (d.state) this.S = d.state;
+      if (d.vol !== undefined) this.vol = d.vol;
+      if (d.play !== undefined) { this.run = d.play; this.s = 0; this.ph = 0; this.post(-1); }
+      if (d.preview !== undefined && !this.run) { this.pv = d.preview; this.pvT = .22 * sampleRate; this.pvAge = 0; } };
+    this.k44 = 44100 / sampleRate;                                     // per-sample constants were tuned at 44.1 kHz
+    const o = opt && opt.processorOptions;                             // (an offline render: the state up front)
+    if (o && o.state) { this.S = o.state; this.run = !!o.play; if (o.vol !== undefined) this.vol = o.vol; }
+  }
+  post(i) { if (i !== this.lastPost) { this.lastPost = i; this.port.postMessage({ step: i }); } }
+  noise() { let z = this.nz; z ^= z << 13; z ^= z >>> 17; z ^= z << 5; this.nz = z >>> 0; return (this.nz / 2147483648) - 1; }
+  len() { const n = this.S.sLen | 0; return n >= 1 && n <= 16 ? n : 16; }
+  stepNote(i, L) { const ln = this.S.lane; for (let k = 0; k < L; k++) { const v = ln[(i + L - k) % L]; if (v !== NONE && !(v & TIE)) return v; } return this.S.p.root; }
+  legatoInto(i, L) { const ln = this.S.lane, v = ln[i], pi = (i + L - 1) % L, pv = ln[pi];
+    if (v === NONE || pv === NONE || L < 2) return false; return !!(v & TIE) || !!((this.S.sldM >> pi) & 1); }
+  evalSteps() {                                                      // eval_steps() in dinghy.c
+    const S = this.S, p = S.p, L = this.len(), s = this.s, ph = this.ph, i = s % L, ln = S.lane, v = ln[i], nv = ln[(i + 1) % L];
+    const tr = p.sTrans + p.aTune * 12, o = { y: 0, gate: 0, acc: 0, age: 1e9 };
+    if (!this.run) {
+      if (this.pv >= 0 && this.pvT > 0) { o.y = this.pv + p.aTune * 12; o.gate = 1; o.age = this.pvAge; } else o.y = p.root + tr;
+      return o;
+    }
+    const n = this.stepNote(i, L); o.y = n + tr;
+    if (v === NONE) return o;
+    let k = 0; while (k + 1 < L && this.legatoInto((i + L - k) % L, L)) k++;
+    o.age = k + ph; o.acc = (S.accM >> ((i + L - k) % L)) & 1;
+    if (!(v & TIE) && this.legatoInto(i, L)) {                       // slid into: an RC glide from the note before (22 ms + GLIDE)
+      const pn = this.stepNote((i + L - 1) % L, L), tau = 22 + (p.aGlide >> 1), ms = ph * 15000 / p.bpm;
+      o.y += (pn - n) * Math.exp(-ms / tau);
+    }
+    const slide = ((S.sldM >> i) & 1) && nv !== NONE;
+    o.gate = slide || (nv !== NONE && (nv & TIE) && L > 1) || ph < p.aGate * 655 / 65536 ? 1 : 0;
+    return o;
+  }
+  control() {                                                        // control() in dinghy.c, every 16 samples
+    const S = this.S, p = S.p, o = this.evalSteps(), stepMs = 15000 / p.bpm;
+    // T3 KICK, four to the floor
+    let kAmp = 0, ky = p.root;
+    if (S.kickOn && this.run) {
+      const kt = (this.s & 3) + this.ph, drop = Math.exp(-kt * (384 + p.kPdec * 20) / 256);
+      ky = p.root + p.kBase + p.kTop * drop; kAmp = Math.exp(-kt * (40 + (127 - p.kBody) * 3) / 256);
+      if (kt * 65536 < 1200 && !this.kOn) this.kClk = p.kClick * 200 / 32768;
+      this.kOn = kt * 65536 < 1200;
+    }
+    this.kInc = mtof(ky) / sampleRate; this.kAmpT = kAmp * p.kLvl / 128; this.kDrv = (12 + (p.kDrive >> 2)) / 16;
+    this.duck = 1 - kAmp * p.kDuck / 128;
+    // T1 ACID
+    this.aInc = mtof(o.y) / sampleRate;
+    this.aAmpT = (!o.gate || S.acidMute) ? 0 : ((o.acc ? 24000 + p.aAcc * 60 : 24000) * p.aLvl / 128 / 32768) * this.duck;
+    const base = 24 + p.cut * 72 / 128, a = Math.min(o.age, 24), tau = o.acc ? 200 : tauMs(p.aDec);
+    const e = Math.exp(-Math.min(a * stepMs / tau, 16)), amt = p.env * 48 / 128 + (o.acc ? p.aAcc * 16 / 128 : 0);
+    const fc = mtof(base + amt * e), w = 2 * Math.PI * fc / sampleRate;
+    this.g = 1 - Math.exp(-Math.min(w, 40000 / 32768)); this.f = Math.min(w, 23000 / 32768);
+    this.kq = p.res * 126 / 4096; this.damp = (32768 - p.res * 31500 / 128) / 16384; this.aDrv = (12 + (p.aDrive >> 2)) / 16;
+    this.dlen = Math.min(this.N - 1, Math.round(sampleRate * 15 / p.bpm * (p.dTime + 1)));
+    this.dk = 1 - Math.pow(1 - (1500 + p.dTone * 150) / 32768, this.k44);
+    this.hDk = 1 - Math.pow(1 - (1 + (((127 - p.hDec) * 28) >> 7)) / 16384, this.k44); this.hA = (20000 + p.hTone * 100) / 32768;
+  }
+  percOn(s) {                                                        // perc_on(): the hat's patterns
+    switch (this.S.p.hPat) {
+      case 0: return (s & 3) === 2 ? 2 : 0;
+      case 1: return (s & 3) === 2 ? 2 : 1;
+      case 2: return s % 3 === 0 ? 2 : 0;
+      case 3: return (s & 3) === 2 ? 2 : ((s & 15) >= 12 && (s & 1)) ? 1 : 0;
+      case 4: return (s & 7) === 4 ? 2 : 0;
+      default: return (s & 15) === 0 ? 2 : 0;
+    }
+  }
+  onStep() { const h = this.S.percOn ? this.percOn(this.s) : 0; if (h) this.hEnv = h === 2 ? 26000 / 32768 : 13000 / 32768; }
+  reverb(x) {
+    let acc = 0;
+    for (let c = 0; c < 4; c++) { const b = this.rb[c], y = b[this.ri[c]]; this.rlp[c] += (y - this.rlp[c]) * .6;
+      b[this.ri[c]] = clip(x + this.rlp[c] * .886); if (++this.ri[c] >= this.rl[c]) this.ri[c] = 0; acc += y; }
+    acc /= 4;
+    for (let c = 4; c < 6; c++) { const b = this.rb[c], y = b[this.ri[c]], o = y - acc; b[this.ri[c]] = clip(acc + y / 2);
+      if (++this.ri[c] >= this.rl[c]) this.ri[c] = 0; acc = o; }
+    return acc;
+  }
+  process(_, outs) {
+    const out = outs[0], Lc = out[0], Rc = out[1] || out[0], n = Lc.length;
+    if (!this.S) { Lc.fill(0); if (out[1]) Rc.fill(0); return true; }
+    const S = this.S, p = S.p;
+    for (let j = 0; j < n; j++) {
+      if ((this.ctr++ & 15) === 0) this.control();
+      if (this.run) {
+        const sw = (this.s & 1) ? -p.swing : p.swing, inc = p.bpm * 4 / 60 / sampleRate * 100 / (100 + sw);
+        this.ph += inc;
+        if (this.ph >= 1) { this.ph -= 1; this.s++; this.onStep(); this.control(); this.post(this.s % this.len()); }
+        else if (this.lastPost < 0) { this.onStep(); this.post(0); }
+      } else if (this.pvT > 0) { this.pvT--; this.pvAge += p.bpm * 4 / 60 / sampleRate; }
+      let mix = 0, wet = 0;
+      // KICK: a sine (TONE: towards a filtered saw) and a click
+      this.kPh += this.kInc; if (this.kPh >= 1) this.kPh -= 1;
+      this.kAmp += (this.kAmpT - this.kAmp) / 32 * this.k44;
+      if (this.kAmp > 1e-4) {
+        const sine = Math.sin(2 * Math.PI * this.kPh), saw = 2 * this.kPh - 1; this.kLp += (saw - this.kLp) * .275;
+        let v = (sine * (127 - p.kTone) + this.kLp * p.kTone) / 127;
+        if (this.kClk > 6e-4) { v += this.noise() * this.kClk; this.kClk -= this.kClk / 128 * this.k44; }
+        mix += sat(v * this.kDrv) * this.kAmp;
+      }
+      // ACID: wave (+ sub) -> the 4-pole ladder (or the SVF) -> drive
+      const dt = this.aInc; this.aPh += dt; if (this.aPh >= 1) this.aPh -= 1; this.sPh += dt / 2; if (this.sPh >= 1) this.sPh -= 1;
+      this.aAmp += (this.aAmpT - this.aAmp) / 64 * this.k44;
+      {
+        const P = this.aPh, saw = (2 * P - 1) - blep(P, dt), sq = .79 * ((P < .5 ? 1 : -1) + blep(P, dt) - blep((P + .5) % 1, dt));
+        let src = p.aWave === 0 ? saw : p.aWave === 1 ? sq : p.aWave === 2 ? .79 * ((P < .25 ? 1 : -1) + blep(P, dt) - blep((P + .75) % 1, dt)) : (saw + sq) / 2;
+        if (p.aSub) src = (src * (127 - (p.aSub >> 1)) + .79 * (this.sPh < .5 ? 1 : -1) * (p.aSub >> 1)) / 127;
+        let lp;
+        if (p.aFilt === 0) {
+          let u = src / 2 - this.kq * this.y4; u = clip(u); u -= u * u * u / 3;
+          const G = this.g; this.y1 += G * (u - this.y1); this.y2 += G * (this.y1 - this.y2); this.y3 += G * (this.y2 - this.y3); this.y4 += G * (this.y3 - this.y4);
+          lp = this.y4 * (1 + this.kq / 2);
+        } else {
+          this.lp += this.f * this.bp; let hp = src / 2 - this.lp - this.damp * this.bp; hp = Math.max(-2, Math.min(2, hp));
+          this.bp += this.f * hp; this.bp = Math.max(-1.83, Math.min(1.83, this.bp)); this.lp = Math.max(-1.83, Math.min(1.83, this.lp)); lp = this.lp;
+        }
+        if (this.aAmp > 2e-4) { const a = sat(lp * this.aDrv) * this.aAmp; mix += a; wet += a; }
+      }
+      // PERC: the noise hat
+      if (this.hEnv > 1e-3) {
+        const nx = this.noise(); this.hy = this.hA * (this.hy + nx - this.hx); this.hx = nx;
+        mix += this.hy * this.hEnv * p.hLvl * 41 / 16384; this.hEnv -= this.hEnv * this.hDk;
+      }
+      // the delay: ACID only, ping-pong, a low-pass in the feedback; then the small room
+      const N = this.N, rd = (this.dw - this.dlen + N) % N, dl = this.dL[rd], dr = this.dR[rd];
+      this.dlp += (dr - this.dlp) * this.dk;
+      this.dL[this.dw] = clip(wet * p.dMix / 256 + this.dlp * p.dFb / 128); this.dR[this.dw] = dl * 29 / 32; this.dw = (this.dw + 1) % N;
+      const rv = p.rMix ? this.reverb(wet / 8 + (dl + dr) / 8) * p.rMix / 128 : 0, md = 1 + (p.mDrive >> 5);
+      Lc[j] = sat((mix + dl * 13 / 16 + rv) * md) * .5 * this.vol; Rc[j] = sat((mix + dr * 13 / 16 + rv) * md) * .5 * this.vol;
+    }
+    return true;
+  }
+}
+registerProcessor('fn-acid', Acid);`;
+let ctx = null, node = null, playing = false;
+async function ensureAudio() {
+  if (node) { await ctx.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC || !window.AudioWorkletNode) throw new Error('这个浏览器没有 AudioWorklet，试试新版 Chrome / Edge / Safari / Firefox');
+  try { ctx = new AC({ sampleRate: 44100, latencyHint: 'interactive' }); } catch (_) { ctx = new AC(); }
+  await ctx.resume();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+  node = new AudioWorkletNode(ctx, 'fn-acid', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 25;
+  node.connect(hp).connect(ctx.destination);
+  node.port.onmessage = e => { if (e.data.step !== undefined) { playStep = e.data.step; drawRoll(); } };
+  post();
+}
+function post() {
+  if (!node) return;
+  node.port.postMessage({ state: { p: S.p, lane: S.lane, accM: S.accM, sldM: S.sldM, sLen: S.p.sLen, kickOn: S.kickOn, percOn: S.percOn, acidMute: S.acidMute },
+    vol: Number($('vol').value) / 100 });
+}
+function preview(m) { if (node && !playing) node.port.postMessage({ preview: m }); }
+async function toggle() {
+  try { await ensureAudio(); } catch (e) { say(e.message, true); return; }
+  playing = !playing; node.port.postMessage({ play: playing });
+  $('play').textContent = playing ? '■ 停止' : '▶ 播放'; $('play').classList.toggle('on', playing);
+  if (!playing) { playStep = -1; drawRoll(); }
+}
+$('play').addEventListener('click', toggle);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); toggle(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && document.activeElement.tagName !== 'TEXTAREA') { e.preventDefault(); doUndo(); }
+});
+
+/* ---- the tools */
+const shift = d => { pushUndo(); const n = L(), r = (a, i) => a[((i - d) % n + n) % n];
+  const ln = S.lane.slice(0, n), am = [...Array(n)].map((_, i) => bit(S.accM, i)), sm = [...Array(n)].map((_, i) => bit(S.sldM, i));
+  for (let i = 0; i < n; i++) { S.lane[i] = r(ln, i); }
+  S.accM = 0; S.sldM = 0; for (let i = 0; i < n; i++) { if (r(am, i)) S.accM |= 1 << i; if (r(sm, i)) S.sldM |= 1 << i; }
+  S.pat = -1; changed(); };
+const trans = d => { pushUndo(); S.lane = S.lane.map(v => v === NONE ? v : (Math.max(12, Math.min(96, (v & 127) + d)) | (v & TIE))); S.pat = -1; changed(); };
+$('gen').onclick = () => { genSteps(); say('写了一条新的线（和机器上 OCT+ 一样的规则：根音多、自然小调）。'); };
+$('mut').onclick = () => { mutateSteps(); say('改了 2–3 步。'); };
+$('shl').onclick = () => shift(-1); $('shr').onclick = () => shift(1);
+$('up1').onclick = () => trans(1); $('dn1').onclick = () => trans(-1); $('up12').onclick = () => trans(12); $('dn12').onclick = () => trans(-12);
+$('clr').onclick = () => { pushUndo(); S.lane = new Array(16).fill(S.p.root); S.accM = 0; S.sldM = 0; S.pat = -1; S.name = 'BLANK'; changed(true); };
+$('undo').onclick = doUndo;
+$('name').addEventListener('change', () => { S.name = $('name').value.toUpperCase().replace(/[^ -~]/g, '').slice(0, 12) || 'LINE'; changed(true); });
+
+/* ---- the file */
+$('exp').onclick = () => {
+  const blob = new Blob([JSON.stringify(toJSON(), null, 1)], { type: 'application/json' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'fn-acid-' + S.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  say('导出了 ' + a.download);
+};
+$('imp').addEventListener('change', async () => {
+  const f = $('imp').files[0]; if (!f) return;
+  try { fromJSON(JSON.parse(await f.text())); say('导入了 ' + f.name); } catch (e) { say('导入失败：' + e.message, true); }
+  $('imp').value = '';
+});
+$('showJson').onclick = () => { const b = $('jsonBox'); b.hidden = !b.hidden; if (!b.hidden) $('json').value = JSON.stringify(toJSON(), null, 1); };
+$('applyJson').onclick = () => { try { fromJSON(JSON.parse($('json').value)); say('用上了这段 JSON。'); } catch (e) { say('JSON 有问题：' + e.message, true); } };
+$('copyJson').onclick = async () => { try { await navigator.clipboard.writeText($('json').value); say('复制了。'); } catch (_) { $('json').select(); say('按 Ctrl+C 复制。'); } };
+
+/* ---- start: the last state in this browser, else FILM */
+buildKnobs(); buildLines(); buildTransport(); $('fwv').textContent = FW;
+if (restore()) { changed(true); say('接着上次的状态（存在这个浏览器里）。'); }
+else { loadPattern(1); undo.length = 0; $('undo').disabled = true; }
+window.FNACID = { get state() { return S; }, toJSON, fromJSON, loadPattern };   // for tests in the console
+</script>
+</body>
+</html>

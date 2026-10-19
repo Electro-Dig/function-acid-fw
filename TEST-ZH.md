@@ -10,13 +10,13 @@
 
 ## 刷入
 
-1. Chrome 打开 **https://fn-acid.netlify.app** ，页面顶部绿色框写着当前版本（例如 FN ACID 0.31 test）。浏览器问 MIDI 权限时允许。
+1. Chrome 打开 **https://fn-acid.netlify.app** ，安装按钮上写着当前版本（例如“安装 FN ACID 0.32”）。浏览器问 MIDI 权限时允许。
 2. 按 Install，等进度条走完（两三分钟，别拔线）。FM-1 会自己重启，屏幕变成荧光绿的“函数 Acid”。
 3. **写入时别切走这个标签页**，也别把浏览器最小化：放到后台的标签页会被浏览器限速，每块数据之间的等待会从 10 毫秒变成 1 秒左右，整个过程能慢上好几倍。
 
 本机测试版也可以用：`python -m http.server 8814 -d D:/claude/function-acid-fw/web/installer`，再开 http://localhost:8814 。
 
-这个安装页就是 SLOOP 2.7.1 自己的安装页（同一套代码），只是把要装的包换成了 FN ACID。
+安装页的样子和文字是 FN ACID 自己的，里面负责刷机的代码是 SLOOP 2.7.1 的网页安装器（同一套代码，一字未改），只是把要装的包换成了 FN ACID。
 
 ## 刷坏了 / 想回去
 

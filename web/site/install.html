@@ -1,0 +1,211 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     FN ACID's install page. The page is ours; the installer code in the <script> below is SLOOP 2.7.1's web installer
+     (isod89), itself Felucca's (Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments), copied unchanged
+     by tools/make_installer.py except for the package it installs and the words it shows. Template: web/site/install.html -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FN ACID · 函数 Acid 固件安装</title>
+<meta name="description" content="FN ACID {{VER}}：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="theme-color" content="#c4e45a">
+<link rel="icon" href="data:image/svg+xml,{{ICON}}">
+<style>
+{{CSS}}
+/* the install page */
+.hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:28px;align-items:center}
+@media (max-width:760px){.hero{grid-template-columns:1fr;gap:20px}}
+.hero h1{font:800 clamp(40px,8vw,64px)/1 var(--mono);letter-spacing:.02em;margin:0}
+.hero h1 .fn{background:var(--lime);color:var(--lcdink);padding:0 .12em;border-radius:6px}
+.hero .sub{font-size:15px;color:var(--ink2);margin:10px 0 0}
+.hero .one{font-size:clamp(19px,2.6vw,23px);line-height:1.5;margin:18px 0 0;font-weight:600}
+.hero .one em{font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--lime) 80%,transparent) 62%)}
+.shots{position:relative}
+.shots img{display:block;width:100%;height:auto;image-rendering:pixelated;border-radius:10px;border:3px solid var(--lcdink);
+           box-shadow:0 10px 30px -12px rgba(0,0,0,.35)}
+.shots img+img{position:absolute;width:46%;right:-8px;bottom:-14px;border-width:2px}
+@media (max-width:760px){.shots{max-width:360px;margin:0 auto 14px}}
+.shots figcaption{font-size:12px;color:var(--ink3);margin-top:10px;padding-right:50%}
+
+.install{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+@media (max-width:760px){.install{grid-template-columns:1fr}}
+ol.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 12px 36px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:24px;height:24px;border-radius:50%;
+  background:var(--ink);color:var(--bg);font:700 13px/24px var(--mono);text-align:center}
+ol.steps li b{display:block}
+ol.steps li span{color:var(--ink2);font-size:14.5px}
+.go-box{display:flex;flex-direction:column;gap:12px}
+.ver{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font:600 14px/1.3 var(--mono)}
+button#go{font:800 18px/1 var(--mono);letter-spacing:.06em;background:var(--lime);color:var(--lcdink);border:2px solid var(--lcdink);
+  border-radius:12px;padding:18px 16px;width:100%;cursor:pointer;box-shadow:0 4px 0 var(--lcdink);transition:transform .06s,box-shadow .06s}
+button#go:hover:not(:disabled){filter:brightness(1.04)}
+button#go:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 var(--lcdink)}
+button#go:disabled{background:var(--line);color:var(--ink3);border-color:var(--line);box-shadow:none;cursor:default}
+progress{-webkit-appearance:none;appearance:none;width:100%;height:10px;border:2px solid var(--lcdink);border-radius:6px;background:var(--lcd);overflow:hidden}
+progress::-webkit-progress-bar{background:var(--lcd)}
+progress::-webkit-progress-value{background:var(--lcdink)}
+progress::-moz-progress-bar{background:var(--lcdink)}
+#status{margin:0;min-height:1.7em;font-weight:600;font-variant-numeric:tabular-nums}
+#log{margin:0;font:11.5px/1.45 var(--mono);white-space:pre-wrap;max-height:150px;overflow:auto;padding:8px 10px;min-height:44px}
+#log:empty::before{content:"log";opacity:.45}
+.warn{border-left:4px solid var(--red);padding:2px 0 2px 12px;font-size:14.5px}
+.meta{font:12px/1.5 var(--mono);color:var(--ink3);word-break:break-all}
+button.ed{font:inherit;font-size:14px;background:none;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+
+.log-list{margin:0;padding:0;list-style:none}
+.log-list>li{display:grid;grid-template-columns:76px minmax(0,1fr);gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.log-list>li:first-child{border-top:0;padding-top:0}
+.log-list .v{font:700 15px/1.6 var(--mono)}
+.log-list .v small{display:block;font:400 11.5px/1.3 var(--mono);color:var(--ink3)}
+.log-list ul{margin:0;padding-left:18px}
+.log-list li li{margin:0 0 3px}
+.log-list>li.now .v{color:var(--red)}
+
+.back{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.back{grid-template-columns:1fr}}
+.back .card h3{margin:0 0 6px;font-size:16px}
+.back .card p{margin:0;font-size:14.5px;color:var(--ink2)}
+.back kbd{font-size:13px;border:1px solid var(--ink2);border-bottom-width:3px;border-radius:5px;padding:0 5px;color:var(--ink)}
+details.stock{margin-top:14px}
+details.stock summary{cursor:pointer;font-weight:600}
+details.stock p{margin:8px 0;font-size:14px}
+button#stock-go{font:600 14px/1 var(--sans);background:var(--card);color:var(--ink);border:1px solid var(--ink2);border-radius:10px;padding:11px 16px;cursor:pointer}
+button#stock-go:disabled{color:var(--ink3);border-color:var(--line);cursor:default}
+
+.more{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.more{grid-template-columns:1fr}}
+.more a{display:block;text-decoration:none;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.more a:hover{border-color:var(--ink);color:inherit}
+.more a b{display:block;font-size:16px}
+.more a span{font-size:14px;color:var(--ink2)}
+.more a .pill{margin-left:6px;vertical-align:2px}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+footer p{margin:0 0 8px}
+</style>
+</head>
+<body>
+<header class="bar"><div class="in">
+  <a class="brand" href="./">{{LOGO}}<span>FN ACID<br><small>函数 Acid · FM-1</small></span></a>
+  <nav class="nav">
+    <a class="on" href="./"><span data-l="zh">安装</span><span data-l="en">Install</span></a>
+    <a href="guide.html"><span data-l="zh">上机说明</span><span data-l="en">Guide (中文)</span></a>
+    <a href="editor/"><span data-l="zh">编辑器原型</span><span data-l="en">Editor (preview)</span></a>
+    <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="lang" id="lang" type="button"></button>
+</div></header>
+
+<main>
+  <section class="hero">
+    <div>
+      <h1><span class="fn">FN</span> ACID</h1>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · {{VER}} 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · {{VER}} test</span></p>
+      <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
+      <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
+      <ul class="chips">
+        <li class="hot" data-l="zh">16 步 303 式音序</li><li class="hot" data-l="en">16 steps, the 303's way</li>
+        <li data-l="zh">4 轨 ACID · BIO · KICK · PERC</li><li data-l="en">4 tracks: ACID · BIO · KICK · PERC</li>
+        <li data-l="zh">8 条预设旋律</li><li data-l="en">8 preset lines</li>
+        <li data-l="zh">4 层梯形滤波</li><li data-l="en">4-pole ladder</li>
+        <li data-l="zh">录旋钮动作</li><li data-l="en">knob motion</li>
+        <li data-l="zh">按住 FX 的效果层</li><li data-l="en">hold-FX punch-ins</li>
+      </ul>
+    </div>
+    <figure class="shots" style="margin:0">
+      <img src="data:image/png;base64,{{IMG_HOME}}" width="480" height="480" alt="FN ACID 的 HOME 页：CUTOFF RESO ENV DECAY 四格，四条函数曲线，四条轨道">
+      <img src="data:image/png;base64,{{IMG_STEPS}}" width="480" height="480" alt="FN ACID 的 STEPS 页：16 步，重音红色，滑音斜线">
+      <figcaption><span data-l="zh">FM-1 的屏幕（240×240，同一份固件代码在电脑上渲染的截图）</span><span data-l="en">The FM-1's screen (240×240), rendered on a computer from the same firmware code</span></figcaption>
+    </figure>
+  </section>
+
+  <section class="sec" id="install">
+    <h2><span class="no">01</span><span data-l="zh">安装</span><span data-l="en">Install</span></h2>
+    <div class="install">
+      <div class="card">
+        <ol class="steps">
+          <li data-l="zh"><b>先备份 SLOOP 的工程</b><span>SLOOP 编辑器 → Projects → Backup。FN ACID 读不了 SLOOP 的工程；刷回 SLOOP 后可以恢复。</span></li>
+          <li data-l="en"><b>Back up SLOOP first</b><span>SLOOP editor → Projects → Backup. FN ACID cannot read SLOOP's projects; restore them after going back.</span></li>
+          <li data-l="zh"><b>用 USB 线直接插电脑</b><span>要能传数据的线，不要经过 Hub 或转接器；FM-1 开机。关掉其它用 MIDI 的软件。</span></li>
+          <li data-l="en"><b>Plug the FM-1 straight into the computer</b><span>A data cable, no hub or adapter; switch it on. Close other apps that use MIDI.</span></li>
+          <li data-l="zh"><b>用电脑上的 Chrome 或 Edge 打开本页</b><span>要 Web MIDI。浏览器问 MIDI 权限时选“允许”。</span></li>
+          <li data-l="en"><b>Open this page in Chrome or Edge</b><span>It needs Web MIDI. Allow MIDI when the browser asks.</span></li>
+          <li data-l="zh"><b>按下面的按钮，等它走完</b><span>两三分钟。FM-1 会自己重启，屏幕变成荧光绿的 FN ACID。</span></li>
+          <li data-l="en"><b>Press the button and let it finish</b><span>Two or three minutes. The FM-1 restarts by itself into the lime FN ACID screen.</span></li>
+        </ol>
+        <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
+      </div>
+      <div class="card go-box">
+        <div class="ver"><span class="pill">FN ACID {{VER}}</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <button id="go" disabled data-t="install"></button>
+        <progress id="bar" max="100" value="0"></progress>
+        <p id="status" role="status" aria-live="polite"></p>
+        <pre id="log" class="lcd"></pre>
+        <p class="meta">function-acid.fwsc · {{SIZE}} bytes · sha256 {{SHA}}</p>
+        <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
+        <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="changes">
+    <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
+    <div class="card">
+      <ul class="log-list">
+{{CHANGES}}
+      </ul>
+      <p class="small" style="margin:12px 0 0"><span data-l="zh">从 0.3 起每次加 0.01；安装页和 FM-1 开机画面显示同一个号。完整记录在 </span><span data-l="en">Each update adds 0.01 from 0.3 on; this page and the FM-1's start screen show the same number. Full history on </span><a href="https://github.com/Electro-Dig/function-acid-fw/commits" target="_blank" rel="noopener">GitHub</a>.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="back">
+    <h2><span class="no">03</span><span data-l="zh">想回去 / 刷坏了</span><span data-l="en">Going back / if it goes wrong</span></h2>
+    <div class="back">
+      <div class="card"><h3>SLOOP</h3>
+        <p data-l="zh">打开 <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP 的安装页</a> 按 Install，再用 SLOOP 编辑器把备份恢复。</p>
+        <p data-l="en">Open <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP's installer</a>, press Install, then restore your backup in the SLOOP editor.</p></div>
+      <div class="card"><h3>FM-1 Firmware Hub</h3>
+        <p data-l="zh">在 <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a> 选任何一个 FM-1 固件（SLOOP、X0X、Felucca……）装回去。</p>
+        <p data-l="en">Pick any FM-1 firmware (SLOOP, X0X, Felucca …) on <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a>.</p></div>
+      <div class="card"><h3 data-l="zh">USB 救援模式</h3><h3 data-l="en">USB rescue</h3>
+        <p data-l="zh">开机就崩或黑屏：<b>按住 <kbd>OCT−</kbd> 再开机</b>，只剩升级通道，然后用本页或上面任何一个安装页重新刷。连续两次开机崩溃，它也会自己进救援模式。</p>
+        <p data-l="en">Crashes at start or a black screen: <b>hold <kbd>OCT−</kbd> while switching on</b> (only the update path runs), then install again from any installer. Two crashed starts in a row enter it by themselves.</p></div>
+    </div>
+    <details class="stock card">
+      <summary data-t="stockTitle"></summary>
+      <p class="small" data-t="stockHelp"></p>
+      <p class="small"><a href="https://www.m-vave.com/download" target="_blank" rel="noopener">www.m-vave.com/download</a></p>
+      <p class="small" data-t="stockBackup"></p>
+      <p class="small"><label><input id="stock-saved" type="checkbox"> <span data-t="stockSaved"></span></label></p>
+      <p class="small"><label><span data-t="stockFile"></span><br><input id="stock-file" type="file" accept=".fwsc"></label></p>
+      <p><button id="stock-go" disabled data-t="stockGo"></button></p>
+      <p class="small" data-t="back"></p>
+    </details>
+  </section>
+
+  <section class="sec" id="more">
+    <h2><span class="no">04</span><span data-l="zh">接下来</span><span data-l="en">Next</span></h2>
+    <div class="more">
+      <a href="guide.html"><b data-l="zh">上机说明（中文）</b><b data-l="en">The guide (Chinese)</b>
+        <span data-l="zh">怎么刷、从空白开始照视频摸索、每个键做什么、FX 层、请帮忙测试的事。</span>
+        <span data-l="en">Installing, starting from a blank page, every key, the FX layer, what to test.</span></a>
+      <a href="editor/"><b><span data-l="zh">编辑器</span><span data-l="en">Editor</span><span class="pill">preview</span></b>
+        <span data-l="zh">在大格子上写 16 步、载入 8 条预设、调音色、在浏览器里试听、导出 JSON。发到 FM-1 要等以后的固件。</span>
+        <span data-l="en">Write the 16 steps on a big grid, load the 8 lines, shape the sound, audition in the browser, export JSON. Sending to the FM-1 needs a later firmware.</span></a>
+      <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener"><b data-l="zh">源代码</b><b data-l="en">Source</b>
+        <span data-l="zh">GitHub：Electro-Dig/function-acid-fw，GPL-3.0。可以自己编译、改成你自己的固件。</span>
+        <span data-l="en">GitHub: Electro-Dig/function-acid-fw, GPL-3.0. Build it yourself, make it yours.</span></a>
+    </div>
+  </section>
+
+  <footer>
+    <p data-l="zh">FN ACID 是 Electro-Dig 做的固件，致敬 AA（@measure_plan）“trying to turn math into acid”。它建在 <a href="https://github.com/zvenson/dinghy" target="_blank" rel="noopener">Dinghy</a>（zvenson）上，Dinghy 沿用 <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a>（Leo Kuroshita @kurogedelic，Hügelton Instruments）和 <a href="https://github.com/isod89/sloop-fm1" target="_blank" rel="noopener">SLOOP</a>（isod89）的底层：开机、USB、刷机通道、救援模式。本页的安装代码就是 SLOOP 2.7.1 的网页安装器（来自 Felucca），一字未改，只换了要装的包和显示的文字。</p>
+    <p data-l="en">FN ACID is a firmware by Electro-Dig, after AA (@measure_plan), “trying to turn math into acid”. It is built on <a href="https://github.com/zvenson/dinghy" target="_blank" rel="noopener">Dinghy</a> (zvenson), which keeps the platform of <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> (Leo Kuroshita @kurogedelic, Hügelton Instruments) and <a href="https://github.com/isod89/sloop-fm1" target="_blank" rel="noopener">SLOOP</a> (isod89): start-up, USB, the update path, the rescue. The installer code on this page is SLOOP 2.7.1's web installer (from Felucca), unchanged but for the package and the words it shows.</p>
+    <p><span data-t="license"></span> <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">github.com/Electro-Dig/function-acid-fw</a> · <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">github.com/hugelton/Felucca</a></p>
+    <p><span data-l="zh">M-VAVE 和 FM-1 是其各自所有者的商标；FN ACID 与他们没有关联。</span><span data-l="en">M-VAVE and FM-1 are trademarks of their respective owners; FN ACID is not affiliated with them.</span></p>
+  </footer>
+</main>
+{{SCRIPT}}
+</body>
+</html>

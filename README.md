@@ -5,7 +5,8 @@ played as it is drawn, after AA (@measure_plan) "trying to turn math into acid".
 303's way) or the AA formula; a dotted-eighth ping-pong delay and a small room; FX held + a key = punch-in effects,
 some of them operations on the curve itself (y + 12, a mirror, x / 2, 2x).
 
-- **Install**: https://fn-acid.netlify.app (Chrome / Edge, Web MIDI; SLOOP 2.7.1's installer pointed at this package).
+- **Install**: https://fn-acid.netlify.app (Chrome / Edge, Web MIDI; our page, `web/site/`, around SLOOP 2.7.1's installer code,
+  unchanged). Editor (offline prototype): `web/editor/`, on the site at `editor/`; its design and the firmware it needs: [docs/editor-design.md](docs/editor-design.md).
   Guide (Chinese): [TEST-ZH.md](TEST-ZH.md), also on the site.
 - **Versions**: steps of 0.01 (0.31, 0.32 ...), from `APP_VER` in [firmware/src/dinghy.c](firmware/src/dinghy.c); the
   device shows it at power-on. Package identity `FM-1_956` (a test identity).

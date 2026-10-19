@@ -1,0 +1,48 @@
+/* FN ACID site: one look for the installer, the guide and the editor (the firmware's screen: lime paper, ink, red).
+   tools/make_installer.py inlines this file into build/site/index.html and guide.html. */
+:root{--bg:#efeee8;--card:#fbfaf6;--ink:#1d1d1b;--ink2:#5b5a55;--ink3:#8d8a82;--line:#d9d6cc;
+      --lcd:#ceea70;--lime:#c4e45a;--lcdink:#1d1d1b;--red:#d8204a;--t2:#b0103a;--t3:#1d3fae;--t4:#7a4a00;
+      --mono:ui-monospace,"SFMono-Regular","Cascadia Mono",Consolas,Menlo,monospace;
+      --sans:system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;
+  --line:#34343a;--red:#ff4f73;--t2:#ff6b8a;--t3:#8aa2ff;--t4:#e0a64a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151517;--card:#1e1e22;--ink:#ecebe6;--ink2:#a9a8a1;--ink3:#7b7a75;--line:#34343a;--red:#ff4f73;
+  --t2:#ff6b8a;--t3:#8aa2ff;--t4:#e0a64a;color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 var(--sans);overflow-x:hidden}
+a{color:inherit;text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:var(--red)}
+code,kbd,pre,.mono{font-family:var(--mono)}
+code{font-size:.9em;background:color-mix(in srgb,var(--ink) 8%,transparent);padding:0 4px;border-radius:4px}
+#nl-badge-frame{display:none!important}
+[hidden]{display:none!important}
+html[lang="en"] [data-l="zh"],html:not([lang="en"]) [data-l="en"]{display:none!important}
+
+/* top bar */
+.bar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);
+     border-bottom:1px solid var(--line)}
+.bar .in{max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none;font:700 17px/1 var(--mono);letter-spacing:.04em;color:var(--ink)}
+.brand svg{width:28px;height:28px;flex:none;border-radius:6px}
+.brand small{font:500 12px/1 var(--sans);color:var(--ink2);letter-spacing:0}
+.nav{display:flex;gap:4px 14px;flex-wrap:wrap;margin-left:auto;font-size:14px}
+.nav a{text-decoration:none;color:var(--ink2);padding:2px 0;border-bottom:2px solid transparent}
+.nav a:hover,.nav a.on{color:var(--ink);border-bottom-color:var(--lime)}
+button.lang{font:500 12px/1 var(--mono);color:var(--ink2);background:none;border:1px solid var(--line);border-radius:999px;padding:6px 10px;cursor:pointer}
+button.lang:hover{color:var(--ink);border-color:var(--ink2)}
+
+main{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+h1,h2,h3{line-height:1.3}
+h2{font-size:20px;margin:0 0 12px;display:flex;align-items:baseline;gap:10px}
+h2 .no{font:700 12px/1 var(--mono);background:var(--ink);color:var(--bg);padding:4px 6px;border-radius:4px}
+.sec{margin:36px 0 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px}
+.dim{color:var(--ink2)}
+.small{font-size:13.5px;color:var(--ink2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0;padding:0;list-style:none}
+.chips li{font:500 12.5px/1.2 var(--mono);border:1px solid var(--ink);border-radius:999px;padding:5px 9px}
+.chips li.hot{background:var(--lime);color:var(--lcdink);border-color:var(--lcdink)}
+.lcd{background:var(--lcd);color:var(--lcdink);border-radius:10px;border:2px solid var(--lcdink)}
+.pill{display:inline-block;font:700 12px/1 var(--mono);padding:4px 7px;border-radius:5px;background:var(--lime);color:var(--lcdink)}
+.pill.red{background:var(--red);color:#fff}
