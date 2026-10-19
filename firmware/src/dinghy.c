@@ -5,7 +5,8 @@
  * (Leo Kuroshita, Hügelton Instruments) and SLOOP (isod89): the platform below is theirs, unchanged.
  * The browser prototype this is ported from: visual-interaction-lab/04-function-acid (engine.js, ui.js).
  *
- *   T1 ACID  the AA formula (N-step cycle against 16, octave jumps, slides, chord / scale walks) -> saw/square -> SVF
+ *   T1 ACID  16 steps you write (note, accent, slide, tie: the 303's way), or the AA formula (N-step cycle
+ *            against 16, octave jumps, slides, chord / scale walks) -> saw/square -> SVF -> a ping-pong delay
  *   T2 BIO   animal calls fitted from real recordings (fly, bee, frog, humpback)
  *   T3 KICK  a pitch spike falling exponentially; DUCK pushes T1/T2 down while it sounds
  *   T4 PERC  noise hat / cricket (4.45 kHz, 3 pulses at 23 Hz) / cicada (40.5 Hz clicks into a resonance)
@@ -13,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.1"
+#define APP_VER "0.2"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -34,18 +35,23 @@ typedef struct {
     uint8_t bAnimal, bPer, bPhase, bQuant; int8_t bTune; uint8_t bDrift, bNoise, bBright, bLvl, bArp;
     uint8_t kTop, kTone, kClick, kDrive, kPdec, kBody; int8_t kBase; uint8_t kDuck, kLvl;
     uint8_t hType, hTone, hDec, hPat, hLvl;
-    uint8_t lRate, lDep, lShape, lDest, dTime, dFb, dMix, mDrive;
+    uint8_t lRate, lDep, lShape, lDest, dTime, dFb, dMix, mDrive, dTone;
     uint8_t laneMode[4], keyLock, magic;
+    uint8_t aSrc, sLen; int8_t sTrans;           /* ACID: 0 = its steps (lane 0), 1 = the formula; steps 1..16; transpose */
+    uint16_t accM, sldM;                         /* ACID steps: accent, slide into the next step */
     uint8_t lane[4][LANE];                       /* NONE = empty, 0..127 a note, | 128 a tie */
 } params_t;
+_Static_assert(sizeof(params_t) <= 256u, "the settings page holds 256 bytes");
 static params_t P;
-#define MAGIC 0xA5
+#define MAGIC 0xA6
+#define STEPS (P.aSrc == 0u)
 
 /* what is not saved: the live keys, the riser, the clock */
 static volatile int32_t riseStart = -1;
 static volatile uint8_t run;
 static uint8_t laneN[4];
 static volatile int16_t live[4] = {-1, -1, -1, -1}, liveN[4] = {-1, -1, -1, -1};
+static volatile uint8_t recNow;                 /* REC is on: the keys write notes (they don't transpose the steps) */
 static volatile uint32_t liveS[4], liveE[4];
 
 static const uint8_t ARP_SETS[6][4] = {{3, 7, 10, 12}, {4, 7, 11, 12}, {5, 7, 10, 12}, {12, 12, 24, 12}, {7, 12, 7, 19}, {3, 6, 9, 12}};
@@ -65,7 +71,7 @@ static const chapter_t CHAPTERS[6] = {
 static void apply_chapter(uint32_t k)
 {
     const chapter_t *c = &CHAPTERS[k % 6u];
-    P.chapter = (uint8_t)(k % 6u); P.terms = c->terms; P.N = c->N; P.off = c->off; P.cut = c->cut;
+    P.aSrc = 1; P.chapter = (uint8_t)(k % 6u); P.terms = c->terms; P.N = c->N; P.off = c->off; P.cut = c->cut;
     if (c->scaleM) { P.scaleM = c->scaleM; P.scaleC = c->scaleC; P.walk = c->walk; }
     if (c->arpSet != 255) P.arpSet = c->arpSet;
     if (c->blipAmt) { P.blipAmt = c->blipAmt; P.blipN = c->blipN; }
@@ -110,12 +116,35 @@ static void defaults(void)
     uint32_t t, i;
     memset(&P, 0, sizeof P);
     P.N = 5; P.off = 2; P.dens = 127; P.scaleM = 7; P.scaleC = 3; P.walk = 3; P.blipAmt = 3; P.blipN = 3;
-    P.root = 33; P.bpm = 140; P.autoSong = 1; P.bars = 8; P.cut = 34;
-    P.kLvl = 110; P.bArp = 1; P.lRate = 4; P.dTime = 2; P.dFb = 46; P.dMix = 40; P.mDrive = 20;
+    P.root = 33; P.bpm = 120; P.autoSong = 0; P.bars = 8;
+    P.kLvl = 110; P.bArp = 1; P.lRate = 4; P.mDrive = 20;
+    P.dTime = 2; P.dFb = 54; P.dMix = 60; P.dTone = 64;       /* the film's echo: dotted eighth, 42 %, darker each time */
     P.laneMode[2] = P.laneMode[3] = 1; P.keyLock = 1; P.magic = MAGIC;
     for (t = 0; t < 4u; t++) for (i = 0; i < LANE; i++) P.lane[t][i] = NONE;
     for (t = 0; t < 4u; t++) apply_preset(t, 0);
     apply_chapter(0);
+    /* the start: a blank page that still pulses. ACID plays its root on all 16 steps (yours to write over),
+     * a four-to-the-floor kick and an off-beat hat; no animal, no song mode */
+    P.aSrc = 0; P.sLen = 16; P.sTrans = 0; P.accM = P.sldM = 0;
+    for (i = 0; i < 16u; i++) P.lane[0][i] = (uint8_t)P.root;
+    P.terms = (uint16_t)((P.terms | T_FOUR | T_PERC) & ~T_BIO);
+    P.cut = 40;
+}
+/* starting points for the steps (HOME held: white keys 9, 10): [semitones above the root, accent, slide, rest] */
+static const int8_t FILM_PAT[16][4] = {     /* the acid film's line (function-sounds/video/acid-film.html) */
+    {0, 1, 0, 0}, {0, 0, 0, 0}, {12, 0, 1, 0}, {0, 0, 0, 0}, {3, 0, 0, 0}, {0, 0, 0, 1}, {12, 1, 0, 0}, {10, 0, 1, 0},
+    {0, 0, 0, 0}, {0, 1, 0, 0}, {7, 0, 0, 0}, {12, 0, 1, 0}, {12, 0, 0, 0}, {3, 0, 0, 1}, {15, 1, 0, 0}, {0, 0, 0, 0}};
+static void load_steps(int film)
+{
+    uint32_t i;
+    P.aSrc = 0; P.sLen = 16; P.sTrans = 0; P.accM = P.sldM = 0; P.autoSong = 0;
+    for (i = 0; i < LANE; i++) P.lane[0][i] = NONE;
+    for (i = 0; i < 16u; i++) {
+        if (!film) { P.lane[0][i] = (uint8_t)P.root; continue; }
+        if (!FILM_PAT[i][3]) P.lane[0][i] = (uint8_t)(P.root + FILM_PAT[i][0]);
+        if (FILM_PAT[i][1]) P.accM |= (uint16_t)(1u << i);
+        if (FILM_PAT[i][2]) P.sldM |= (uint16_t)(1u << i);
+    }
 }
 static void count_lanes(void)
 {
@@ -165,7 +194,7 @@ static int32_t snap_q8(int32_t y)                 /* the nearest note of the sca
 }
 
 /* ---------------------------------------------------------------- the curves: y(s, phi) */
-typedef struct { int32_t y; uint8_t acc, slide, rest, gate; } acid_t;
+typedef struct { int32_t y; uint32_t age; uint8_t acc, slide, rest, gate; } acid_t;   /* age: since the attack, Q16 steps */
 typedef struct { int32_t y, amp; uint32_t kt; uint8_t on; } voice_t;
 typedef struct { uint8_t ok, live; uint32_t age, len; int32_t note; } trig_t;
 
@@ -193,11 +222,66 @@ static int trig(uint32_t t, uint32_t s, uint32_t p16, uint32_t back, trig_t *o) 
     return o->ok;
 }
 
+/* ---- ACID's steps, the 303's way: a note, a tie (holds the note before), a rest; an accent; a slide into the next
+ * step (no new attack, the pitch glides there in about 60 ms, the gate stays open) */
+static uint32_t step_len(void) { return P.sLen >= 1u && P.sLen <= 16u ? P.sLen : 16u; }
+static int legato_into(uint32_t i, uint32_t L)     /* step i goes on from the step before it: no new attack */
+{
+    uint32_t v = P.lane[0][i], pi = (i + L - 1u) % L, pv = P.lane[0][pi];
+    if (v == NONE || pv == NONE || L < 2u) return 0;
+    return (v & 128u) || (P.sldM >> pi & 1u);
+}
+static int32_t step_note(uint32_t i, uint32_t L)   /* the pitch step i sounds (a tie or a rest: the last note) */
+{
+    uint32_t k;
+    for (k = 0; k < L; k++) { uint32_t v = P.lane[0][(i + L - k) % L]; if (v != NONE && !(v & 128u)) return (int32_t)v; }
+    return P.root;
+}
+static int32_t acid_mods(uint32_t s, uint32_t p16)  /* the LFO on pitch and the riser */
+{
+    int32_t y = 0;
+    if (P.lDep && P.lDest == 1u) y += ((lfo_at(s, p16) * P.lDep) >> 15) * 3072 / 127;
+    if (riseStart >= 0 && (int32_t)(s - (uint32_t)riseStart) >= 0) {
+        uint32_t d = s - (uint32_t)riseStart; if (d > 16u) d = 16u;
+        int32_t r = (int32_t)((((d << 16) + p16) * 384u) >> 16);
+        y += r < (24 << 8) ? r : (24 << 8);
+    }
+    return y;
+}
+static void eval_steps(uint32_t s, uint32_t p16, acid_t *o)
+{
+    uint32_t L = step_len(), i = s % L, k, v = P.lane[0][i], nv = P.lane[0][(i + 1u) % L];
+    int32_t tr = P.sTrans + P.aTune * 12, n;
+    o->acc = o->slide = o->rest = 0; o->gate = 0; o->age = 0x7FFFFFFFu;
+    if (!run) {                                      /* stopped: only a key sounds (trying notes, or a step being set) */
+        if (live[0] >= 0) { o->y = (live[0] + tr) << 8; o->gate = 1; o->age = (s << 16) + p16 - liveS[0]; }
+        else { o->y = (P.root + tr) << 8; o->rest = 1; }
+        o->y += acid_mods(s, p16);
+        return;
+    }
+    if (live[0] >= 0 && !recNow) tr += live[0] - P.root;     /* a key held while it plays: transpose, as on a 303 */
+    n = step_note(i, L);
+    o->y = (n + tr) << 8;
+    if (v == NONE) { o->rest = 1; o->y += acid_mods(s, p16); return; }
+    for (k = 0; k + 1u < L && legato_into((i + L - k) % L, L); k++) { }
+    o->age = (k << 16) + p16;
+    o->acc = (uint8_t)(P.accM >> ((i + L - k) % L) & 1u);
+    if (!(v & 128u) && legato_into(i, L)) {          /* slid into: glide from the note before (RC, tau 22 ms + GLIDE) */
+        int32_t pn = step_note((i + L - 1u) % L, L), tau = 22 + (P.aGlide >> 1);
+        uint32_t x = p16 * (15000u / P.bpm) / (256u * (uint32_t)tau);
+        o->y += (((pn - n) << 8) * expneg((int32_t)(x > 2047u ? 2047u : x))) >> 15;
+    }
+    o->slide = (uint8_t)((P.sldM >> i & 1u) && nv != NONE);
+    o->gate = o->slide || (nv != NONE && (nv & 128u) && L > 1u) || p16 < P.aGate * 655u;
+    o->y += acid_mods(s, p16);
+}
+
 static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)
 {
     uint32_t t = P.terms, N = P.N, i = (s + P.off) % N, c = ((s + 32u) / N) >> P.arpSpd;
     int32_t base = P.root, y, laneRest = 0, legato = 0;
     trig_t tg;
+    if (STEPS) { eval_steps(s, p16, o); return; }
     if (live[0] >= 0 && (P.laneMode[0] == 1 || !run)) { base = live[0]; legato = 1; }
     else if (liveN[0] >= 0 && P.laneMode[0] == 0 && run && !laneN[0]) base = liveN[0];   /* FOLLOW: a key = transpose */
     else if (!run) laneRest = 1;
@@ -227,14 +311,17 @@ static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)
         int32_t r = (int32_t)((((d << 16) + p16) * 384u) >> 16);
         y += r < (24 << 8) ? r : (24 << 8);
     }
-    o->y = y;
+    o->y = y; o->age = p16;
     o->gate = o->rest ? 0 : (o->slide || legato || p16 < P.aGate * 655u);
 }
 static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
 {
     int32_t base = (24 + ((P.cut * 72) >> 7)) << 8, e, amt;
     if (P.lDep && P.lDest == 0) base += ((lfo_at(s, p16) * P.lDep) >> 15) * 6144 / 127;
-    e = expneg((int32_t)((p16 * (2u + ((127u - P.aDec) >> 4))) >> 8));
+    {   /* the filter envelope runs from the attack (over ties and slides); on the steps an accent closes fast, as on a 303 */
+        uint32_t k = STEPS && o->acc ? 6u : 2u + ((127u - P.aDec) >> 4), a = o->age > (24u << 16) ? (24u << 16) : o->age;
+        e = expneg((int32_t)((a * k) >> 8));
+    }
     amt = ((P.env * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
     return base + ((amt * e * 256) >> 15);
 }
@@ -332,7 +419,7 @@ static uint32_t perc_on(uint32_t s)
 
 /* ---------------------------------------------------------------- the sound (audio ISR) */
 #define DMASK 32767u
-static int16_t dbuf[DMASK + 1u] __attribute__((section(".pool")));
+static int16_t dbufL[DMASK + 1u] __attribute__((section(".pool"))), dbufR[DMASK + 1u] __attribute__((section(".pool")));
 static struct {
     volatile uint32_t s, stepPh;
     volatile uint8_t playing, chBar, startReq, stopReq;
@@ -342,7 +429,7 @@ static struct {
     uint32_t kPh, kInc; int32_t kAmp, kAmpT, kClk, kLp, kDrv, duck;
     uint32_t nz; int32_t hEnv, hDk, hA, hy, hx;
     int32_t cT, cBurst, cF, cLp, cBp; uint32_t cPh, cInc, cPulse, cCnt, cN;
-    uint32_t didx, dlen, dlen2;
+    uint32_t didx, dlen; int32_t dlp, dk;
 } E = {.nz = 22222u, .cT = -1};
 
 static uint32_t inc_q8(int32_t y)
@@ -370,7 +457,7 @@ static void perc_hit(uint32_t h)
 }
 static void on_step(void)
 {
-    if (E.playing && (E.s & 15u) == 0u && E.s > 0u && P.autoSong) {
+    if (E.playing && (E.s & 15u) == 0u && E.s > 0u && P.autoSong && !STEPS) {
         E.chBar++;
         if (E.chBar == P.bars - 1u) riseStart = (int32_t)E.s;
         if (E.chBar >= P.bars) { E.chBar = 0; riseStart = -1; apply_chapter(P.chapter + 1u); }
@@ -403,7 +490,7 @@ static void control(void)
     {
         uint32_t stepS = 661500u / P.bpm;                    /* frames per step */
         E.dlen = stepS * (P.dTime + 1u); if (E.dlen > DMASK) E.dlen = DMASK;
-        E.dlen2 = E.dlen * 3u / 2u; if (E.dlen2 > DMASK) E.dlen2 = DMASK;
+        E.dk = 1500 + P.dTone * 150;                         /* the low-pass in the feedback: ~330 Hz .. ~5 kHz */
     }
     E.hDk = 1 + (((127 - P.hDec) * 28) >> 7);
     E.hA = 20000 + P.hTone * 100;
@@ -419,7 +506,7 @@ static void app_audio(int32_t *out, uint32_t n)
     if (E.startReq) { E.startReq = 0; E.s = 0; E.stepPh = 0; E.chBar = 0; E.playing = 1; run = 1; if (P.autoSong) { apply_chapter(0); riseStart = -1; } control(); }
     if (E.stopReq) { E.stopReq = 0; E.playing = 0; run = 0; riseStart = -1; }
     for (i = 0; i < n; i++) {
-        int32_t mix = 0, d, d2, md, l, r;
+        int32_t mix = 0, wet = 0, dl, dr, md, l, r;
         uint32_t ns;
         if ((E.ctr++ & 15u) == 0u) control();
         ns = E.stepPh + E.sinc;
@@ -448,7 +535,7 @@ static void app_audio(int32_t *out, uint32_t n)
             E.bp += (E.f * hp) >> 15;
             if (E.bp > 60000) E.bp = 60000; else if (E.bp < -60000) E.bp = -60000;
             if (E.lp > 60000) E.lp = 60000; else if (E.lp < -60000) E.lp = -60000;
-            if (E.aAmp > 8) mix += (sat((E.lp * E.aDrv) >> 4) * E.aAmp) >> 15;
+            if (E.aAmp > 8) { int32_t a = (sat((E.lp * E.aDrv) >> 4) * E.aAmp) >> 15; mix += a; wet += a; }
         }
         /* T2 BIO: the animal's wavetable, a little noise, a one-pole low-pass */
         E.bPh += E.bInc;
@@ -456,7 +543,8 @@ static void app_audio(int32_t *out, uint32_t n)
         if (E.bAmp > 8) {
             int32_t wt = BIO_WT[(P.bAnimal & 3u) * 256u + (E.bPh >> 24)], v = (wt * (127 - P.bNoise) + noise() * P.bNoise) >> 7;
             E.bLp += ((v - E.bLp) * E.bK) >> 15;
-            mix += (((E.bLp * E.bAmp) >> 15) * 9) >> 4;
+            int32_t bo = (((E.bLp * E.bAmp) >> 15) * 9) >> 4;
+            mix += bo; wet += bo;
         }
         /* T4 PERC */
         if (P.hType == 0) {
@@ -495,12 +583,15 @@ static void app_audio(int32_t *out, uint32_t n)
                 E.cT++;
             }
         }
-        /* the delay (dotted eighth by default) and the bus drive */
-        d = dbuf[(E.didx - E.dlen) & DMASK]; d2 = dbuf[(E.didx - E.dlen2) & DMASK];
-        dbuf[E.didx] = (int16_t)sat(((mix * P.dMix) >> 8) + ((d * P.dFb) >> 7));
+        /* the delay, as in the acid film: ACID and BIO only (the drums stay dry), dotted eighth by default; the
+         * echoes go left, right, left..., each one through a low-pass, so each is darker and further away */
+        dl = dbufL[(E.didx - E.dlen) & DMASK]; dr = dbufR[(E.didx - E.dlen) & DMASK];
+        E.dlp += ((dr - E.dlp) * E.dk) >> 15;
+        dbufL[E.didx] = (int16_t)sat(((wet * P.dMix) >> 8) + ((E.dlp * P.dFb) >> 7));
+        dbufR[E.didx] = (int16_t)((dl * 29) >> 5);
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
-        l = sat((mix + ((d * 11) >> 4)) * md); r = sat((mix + ((d2 * 9) >> 4)) * md);
+        l = sat((mix + ((dl * 13) >> 4)) * md); r = sat((mix + ((dr * 13) >> 4)) * md);
         out[2u * i] += (l * 7) >> 3; out[2u * i + 1u] += (r * 7) >> 3;
     }
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
@@ -585,12 +676,14 @@ static const char *const L_MODE7[] = {"LOCRIAN", "PHRYG", "AEOLIAN", "DORIAN", "
 static const char *const L_CHORD[] = {"M7", "MAJ7", "SUS", "OCT", "5TH", "DIM"};
 static const char *const L_ONOFF[] = {"OFF", "ON"};
 static const char *const L_BPER[] = {"2 STEP", "4 STEP", "8 STEP", "16 STEP", "32 STEP", "64 STEP"};
+static const char *const L_SRC[] = {"STEPS", "FORMULA"};
 enum { PM_CUT, PM_RES, PM_ENV, PM_ADEC, PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL, PM_ADRIVE, PM_AACC, PM_AGATE, PM_AGLIDE,
        PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL, PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE, PM_BPER, PM_BPHASE,
        PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE, PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK,
        PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL, PM_HDEC,
        PM_N, PM_OFF, PM_DENS, PM_SWING, PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST, PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE,
-       PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL, PM_NONE };
+       PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL,
+       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_NONE };
 static const pm_t PM[] = {
     {"CUTOFF", O(cut), 0, 127, 0, F_NUM, 0, 0}, {"RESO", O(res), 0, 120, 0, F_NUM, 0, 0}, {"ENV AMT", O(env), 0, 127, 0, F_NUM, 0, 0},
     {"DECAY", O(aDec), 0, 127, 0, F_NUM, 0, 0}, {"WAVE", O(aWave), 0, 3, 0, F_LIST, 0, L_WAVE}, {"SUB", O(aSub), 0, 127, 0, F_NUM, 0, 0},
@@ -613,6 +706,8 @@ static const pm_t PM[] = {
     {"CHORD", O(arpSet), 0, 5, 0, F_LIST, 9, L_CHORD}, {"BLIP", O(blipAmt), 0, 12, 0, F_ST, 9, 0}, {"BLIP EVERY", O(blipN), 2, 8, 0, F_NUM, 9, 0},
     {"TEMPO", O(bpm), 80, 170, 0, F_NUM, 9, 0}, {"AUTO SONG", O(autoSong), 0, 1, 0, F_LIST, 9, L_ONOFF}, {"BARS/CH", O(bars), 2, 16, 0, F_NUM, 9, 0},
     {"KICK LVL", O(kLvl), 0, 127, 0, F_NUM, 2, 0},
+    {"TONE", O(dTone), 0, 127, 0, F_NUM, 9, 0}, {"LENGTH", O(sLen), 1, 16, 0, F_NUM, 9, 0}, {"PLAYS", O(aSrc), 0, 1, 0, F_LIST, 9, L_SRC},
+    {"TRANSPOSE", O(sTrans), -12, 12, 1, F_ST, 9, 0},
 };
 static int32_t pget(uint32_t k) { const uint8_t *b = (const uint8_t *)&P + PM[k].off; return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b; }
 static void pset(uint32_t k, int32_t v)
@@ -653,9 +748,10 @@ static const uint8_t NEDIT[4] = {2, 2, 2, 1};
 static const page_t PG_ENV[4] = {{"ENV", {PM_ADEC, PM_AACC, PM_AGATE, PM_AGLIDE}}, {"CALL", {PM_BPER, PM_BPHASE, PM_BDRIFT, PM_BQUANT}},
                                  {"ENV", {PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK}}, {"ENV", {PM_HDEC, PM_HTONE, PM_HPAT, PM_HLVL}}};
 static const page_t PG_OTHER[] = {
-    {"LFO>ACID", {PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST}}, {"DELAY", {PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE}},
+    {"LFO>ACID", {PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST}}, {"DELAY", {PM_DTIME, PM_DFB, PM_DMIX, PM_DTONE}},
     {"SCALE", {PM_NONE, PM_SCALEC, PM_WALK, PM_ROOT}}, {"ARP BLIP", {PM_ARPSET, PM_NONE, PM_BLIPAMT, PM_BLIPN}},
     {"LINE", {PM_N, PM_OFF, PM_DENS, PM_SWING}}, {"GLOBAL", {PM_BPM, PM_NONE, PM_AUTO, PM_BARS}}};
+static const page_t PG_STEPS = {"STEPS", {PM_SLEN, PM_ASRC, PM_SWING, PM_STRANS}};
 
 static struct {
     uint8_t group, page, part, rec, rootOct;
@@ -665,7 +761,8 @@ static struct {
     uint8_t keyNote[27], keyTrk[27];
     int8_t recKey; uint8_t recTrk, recNote; uint32_t recLast;
     uint32_t seed; uint8_t dirty; uint32_t dirtyT;
-} U = {.held = -1, .touch = -1, .recKey = -1};
+    int8_t stepHeld; uint8_t stepKey, stepNew, stepEdited, lastNote, recPos; uint32_t stepT;
+} U = {.held = -1, .touch = -1, .recKey = -1, .stepHeld = -1};
 
 static const page_t *cur_page(void)
 {
@@ -677,7 +774,7 @@ static const page_t *cur_page(void)
     case G_FX: return &PG_OTHER[1];
     case G_SEL: return &PG_OTHER[2];
     case G_ARP: return &PG_OTHER[3];
-    case G_SEQ: return &PG_OTHER[4];
+    case G_SEQ: return U.page % 2u == 0u ? &PG_STEPS : &PG_OTHER[4];
     default: return &PG_OTHER[5];
     }
 }
@@ -688,6 +785,7 @@ static void toast(const char *a, const char *b)
     U.toastT = fm1_ms; U.touch = -1;
 }
 static void changed(void) { U.dirty = 1; U.dirtyT = fm1_ms; }
+static int steps_page(void) { return U.group == G_SEQ && U.page % 2u == 0u; }
 
 /* ---- TB-3PO's idea: OCT+ throws a new ACID line, OCT- mutates one or two things (drums and BIO stay) */
 static uint32_t rng_s = 1;
@@ -708,7 +806,7 @@ static void new_line(void)
     P.terms = (uint16_t)((P.terms & ~ACID_BITS) | bits);
     P.scaleM = rnd(3) ? 7 : 5; P.scaleC = P.scaleM == 7 ? MC[rnd(4)] : 3;
     P.walk = WK[rnd(5)]; P.arpSet = AS[rnd(5)]; P.blipAmt = BA[rnd(3)]; P.blipN = rnd(2) ? 3 : 5; P.dens = DN[rnd(4)];
-    P.autoSong = 0;
+    P.autoSong = 0; P.aSrc = 1;
     {
         char h[8] = "#"; static const char HX[] = "0123456789ABCDEF"; uint32_t i;
         for (i = 0; i < 4u; i++) h[1 + i] = HX[(U.seed >> (12 - 4 * i)) & 15u];
@@ -731,13 +829,19 @@ static void mutate_line(void)
         }
     after = P.N | P.off << 8 | (uint32_t)P.terms << 16;
     if (after == before) P.off = (uint8_t)((P.off + 1u) % P.N);
-    P.autoSong = 0;
+    P.autoSong = 0; P.aSrc = 1;
     toast("MUTATE", 0); changed();
 }
 
 /* ---- the lanes */
 static uint32_t now_step(void) { return E.s + (E.stepPh >= 0x80000000u); }
-static void write_lane(uint32_t t, uint32_t s, uint32_t v) { P.lane[t][s & (LANE - 1u)] = (uint8_t)v; count_lanes(); changed(); }
+static void write_lane(uint32_t t, uint32_t s, uint32_t v)
+{
+    uint32_t i = t == 0u && STEPS ? s % step_len() : s & (LANE - 1u);
+    P.lane[t][i] = (uint8_t)v;
+    if (t == 0u && STEPS && i < 16u) { P.accM &= (uint16_t)~(1u << i); P.sldM &= (uint16_t)~(1u << i); }
+    count_lanes(); changed();
+}
 static void clear_lane(int all)
 {
     uint32_t t, i;
@@ -760,6 +864,13 @@ static void key_down(uint32_t k)
     if (t == 3u && (P.terms & T_PERC)) perc_hit(2);
     if (TBIT[t] && !(P.terms & TBIT[t])) P.terms |= TBIT[t];
     if (U.rec && E.playing) { uint32_t q = now_step(); write_lane(t, q, (uint32_t)note); U.recKey = (int8_t)k; U.recTrk = (uint8_t)t; U.recNote = (uint8_t)note; U.recLast = q; }
+    else if (U.rec && t == 0u && STEPS) {                          /* stopped: each key fills the next step */
+        char s[24] = "STEP ", nn[8] = "";
+        sint(s, U.recPos + 1); write_lane(0, U.recPos, (uint32_t)note); U.lastNote = (uint8_t)note;
+        U.recPos = (uint8_t)((U.recPos + 1u) % step_len());
+        snote(nn, note); scat(s, " "); scat(s, nn); toast(s, 0);
+        return;
+    }
     { char s[8] = ""; snote(s, note); toast(TRK[t], " "); scat(U.toast, s); }
 }
 static void key_up(uint32_t k)
@@ -786,6 +897,118 @@ static int key_index(uint32_t k, int *white)   /* key 0..26 -> white 0..15 or bl
     *white = !black_key(k);
     return (int)(*white ? w : b);
 }
+/* ---- the steps: TB-3PO's idea on the steps themselves. OCT+ writes a new line you can then edit, OCT- changes 2 or 3 steps */
+static const int8_t GEN_W[12] = {0, 0, 0, 0, 0, 12, 12, 7, 3, 10, 15, 5};      /* root-heavy, natural minor */
+static void seed_now(void) { U.seed = (fm1_ms * 2654435761u) ^ (U.seed << 7) ^ 0x5bd1e995u; rng_s = U.seed | 1u; }
+static void gen_steps(void)
+{
+    uint32_t i, L = step_len();
+    seed_now();
+    P.accM = P.sldM = 0;
+    for (i = 0; i < LANE; i++) P.lane[0][i] = NONE;
+    for (i = 0; i < L; i++) {
+        uint32_t r = rnd(100);
+        if (i == 0u) { P.lane[0][i] = (uint8_t)P.root; P.accM |= 1u; continue; }
+        if (r < 20u) continue;                                            /* a rest */
+        if (r < 27u && P.lane[0][i - 1u] != NONE) P.lane[0][i] = (uint8_t)(step_note(i - 1u, L) | 128);   /* a tie */
+        else P.lane[0][i] = (uint8_t)(P.root + GEN_W[rnd(12)]);
+        if (rnd(100) < 28u) P.accM |= (uint16_t)(1u << i);
+        if (rnd(100) < 22u) P.sldM |= (uint16_t)(1u << i);
+    }
+    P.aSrc = 0; P.autoSong = 0; count_lanes();
+    {
+        char h[8] = "#"; static const char HX[] = "0123456789ABCDEF"; uint32_t j;
+        for (j = 0; j < 4u; j++) h[1 + j] = HX[(U.seed >> (12 - 4 * j)) & 15u];
+        h[5] = 0;
+        toast("NEW STEPS ", h);
+    }
+    changed();
+}
+static void mutate_steps(void)
+{
+    uint32_t k = 2u + rnd(2), j, L = step_len();
+    rng_s ^= fm1_ms | 1u;
+    for (j = 0; j < k; j++) {
+        uint32_t i = rnd(L), b = 1u << i;
+        switch (rnd(4)) {
+        case 0: P.lane[0][i] = (uint8_t)(P.root + GEN_W[rnd(12)]); break;
+        case 1: P.accM ^= (uint16_t)b; break;
+        case 2: P.sldM ^= (uint16_t)b; break;
+        default: P.lane[0][i] = P.lane[0][i] == NONE ? (uint8_t)(P.root + GEN_W[rnd(12)]) : NONE;
+        }
+    }
+    P.aSrc = 0; count_lanes(); toast("MUTATE STEPS", 0); changed();
+}
+/* holding a step (a white key on SEQ > STEPS): KNOB1 note, KNOB2 rest / note / tie, KNOB3 accent, KNOB4 slide; OCT-/+ an octave */
+static void step_preview(int on)
+{
+    if (E.playing) return;
+    if (on && U.stepHeld >= 0 && P.lane[0][U.stepHeld] != NONE) {
+        int32_t n = step_note((uint32_t)U.stepHeld, step_len());
+        liveS[0] = (E.s << 16) + (E.stepPh >> 16); liveN[0] = (int16_t)n; live[0] = (int16_t)n;
+    } else if (live[0] >= 0) { liveE[0] = (E.s << 16) + (E.stepPh >> 16); live[0] = -1; }
+}
+static void step_set_note(uint32_t i, int32_t n)
+{
+    if (n < 12) n = 12;
+    if (n > 96) n = 96;
+    P.lane[0][i] = (uint8_t)n; U.lastNote = (uint8_t)n;
+}
+static void step_key(uint32_t k, int down)
+{
+    int w, i = key_index(k, &w);
+    if (!w) return;                                                /* black keys: nothing here */
+    if (down) {
+        if ((uint32_t)i >= step_len()) { char s[16] = "LENGTH IS "; sint(s, (int32_t)step_len()); toast(s, 0); return; }
+        U.stepNew = P.lane[0][i] == NONE;
+        if (U.stepNew) { step_set_note((uint32_t)i, U.lastNote ? U.lastNote : P.root); count_lanes(); changed(); }
+        U.stepHeld = (int8_t)i; U.stepKey = (uint8_t)k; U.stepT = fm1_ms; U.stepEdited = 0;
+        step_preview(1);
+    } else if (U.stepHeld >= 0 && U.stepKey == k) {
+        uint32_t j = (uint32_t)U.stepHeld;
+        if (!U.stepNew && !U.stepEdited && fm1_ms - U.stepT < 400u) {          /* a tap on a step that was on: off */
+            P.lane[0][j] = NONE; P.accM &= (uint16_t)~(1u << j); P.sldM &= (uint16_t)~(1u << j); count_lanes(); changed();
+        }
+        step_preview(0); U.stepHeld = -1;
+    }
+}
+static void step_turn(uint32_t knob, int32_t d)
+{
+    uint32_t j = (uint32_t)U.stepHeld, L = step_len(), b = 1u << j, v = P.lane[0][j];
+    switch (knob) {
+    case 0: {                                                      /* NOTE: with KEY LOCK, the notes of the scale */
+        int32_t n = step_note(j, L), dir = d > 0 ? 1 : -1, c = d > 0 ? d : -d;
+        while (c--) { int32_t g = 0; do { n += dir; g++; } while (P.keyLock && g < 4 && (snap_q8(n << 8) >> 8) != n); }
+        step_set_note(j, n); break;
+    }
+    case 1: {                                                      /* GATE: REST, NOTE, TIE */
+        int32_t g = v == NONE ? 0 : (v & 128u) ? 2 : 1;
+        g += d > 0 ? 1 : -1; g = g < 0 ? 0 : g > 2 ? 2 : g;
+        if (g == 0) P.lane[0][j] = NONE;
+        else if (g == 1) step_set_note(j, v == NONE ? (U.lastNote ? U.lastNote : P.root) : (int32_t)(v & 127u));
+        else P.lane[0][j] = (uint8_t)(step_note((j + L - 1u) % L, L) | 128);
+        break;
+    }
+    case 2: if (d > 0) P.accM |= (uint16_t)b; else P.accM &= (uint16_t)~b; break;
+    default: if (d > 0) P.sldM |= (uint16_t)b; else P.sldM &= (uint16_t)~b; break;
+    }
+    U.stepEdited = 1; U.touch = (int8_t)knob; U.touchT = fm1_ms;
+    count_lanes(); changed();
+    if (live[0] >= 0) step_preview(1);
+}
+static void step_cell(uint32_t knob, const char **lab, char *val)
+{
+    static const char *const LAB[4] = {"NOTE", "GATE", "ACCENT", "SLIDE"};
+    uint32_t j = (uint32_t)U.stepHeld, v = P.lane[0][j];
+    *lab = LAB[knob]; val[0] = 0;
+    switch (knob) {
+    case 0: if (v == NONE) scat(val, "-"); else snote(val, step_note(j, step_len())); break;
+    case 1: scat(val, v == NONE ? "REST" : (v & 128u) ? "TIE" : "NOTE"); break;
+    case 2: scat(val, P.accM >> j & 1u ? "ON" : "OFF"); break;
+    default: scat(val, P.sldM >> j & 1u ? "ON" : "OFF");
+    }
+}
+
 static void layer_key(uint32_t k, int down)
 {
     int w, i = key_index(k, &w);
@@ -816,6 +1039,7 @@ static void layer_key(uint32_t k, int down)
         break;
     case BTN_HOME:
         if (down && w && i < 6) { apply_chapter((uint32_t)i); riseStart = -1; toast(CHAPTERS[i].name, 0); changed(); }
+        if (down && w && (i == 8 || i == 9)) { load_steps(i == 9); count_lanes(); toast(i == 9 ? "STEPS: FILM" : "STEPS: BLANK", 0); changed(); }
         break;
     case BTN_EDIT: case BTN_ENV:
         if (!down || !w) return;
@@ -838,7 +1062,7 @@ static const char *layer_label(uint32_t k, char *buf)       /* what key k does i
     case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; break;
     case BTN_FX: if (w && i < 4) return L_DTIME[i]; if (w && i == 14) return "RISE"; if (w && i == 15) return "THROW"; break;
     case BTN_SEL: snote(buf, 53 + (int32_t)k - 24); return buf;
-    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; break;
+    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i == 8) return "BLANK"; if (w && i == 9) return "FILM"; break;
     case BTN_EDIT: case BTN_ENV: if (w && i < 4) return TRK[i]; if (w && i >= 8 && (uint32_t)(i - 8) < NPRE[U.part]) { scat(buf, "P"); sint(buf, i - 7); return buf; } break;
     case BTN_ARP: if (w && i < 6) return L_CHORD[i]; break;
     default: break;
@@ -853,7 +1077,7 @@ static int layer_on(uint32_t k)
     case BTN_GLO: return w && i < 4 && !(P.mutes >> i & 1u);
     case BTN_REC: return w && ((i == 2 && P.laneMode[U.part] == 0) || (i == 3 && P.keyLock));
     case BTN_SEL: return 53 + (int32_t)k - 24 == P.root;
-    case BTN_HOME: return w && i == (int)P.chapter;
+    case BTN_HOME: return w && !STEPS && i == (int)P.chapter;
     case BTN_EDIT: case BTN_ENV: return w && (i == (int)U.part || (i >= 8 && i - 8 == (int)P.pre[U.part]));
     case BTN_ARP: return w && i == (int)P.arpSet;
     default: return 0;
@@ -865,22 +1089,28 @@ static void tap(int b)
 {
     static const int8_t GRP[14] = {-1, -1, G_FX, G_SEL, G_ENV, G_LFO, G_EDIT, G_GLO, G_HOME, -2, G_ARP, G_SEQ, -1, -1};
     if (b == BTN_REC) {
-        U.rec ^= 1u;
-        if (U.rec) { P.autoSong = 0; if (!E.playing) E.startReq = 1; toast("REC ", TRK[U.part]); }
-        else { U.recKey = -1; toast("REC OFF", 0); }
+        U.rec ^= 1u; recNow = U.rec; U.recPos = 0;
+        if (U.rec) {
+            P.autoSong = 0;
+            if (!E.playing && U.part == 0u && STEPS) toast("REC: KEYS FILL STEP 1, 2..", 0);
+            else { if (!E.playing) E.startReq = 1; toast("REC ", TRK[U.part]); }
+        } else { U.recKey = -1; toast("REC OFF", 0); }
         return;
     }
     if (GRP[b] == -2) { settings_save(&P, sizeof P); U.dirty = 0; toast("SAVED", 0); return; }   /* SAVE: keep it in flash */
     if (GRP[b] < 0) return;
     if (U.group == (uint8_t)GRP[b]) U.page = (uint8_t)((U.page + 1u) % npages());
     else { U.group = (uint8_t)GRP[b]; U.page = 0; }
+    if (U.group == G_SEQ) U.part = 0;                               /* SEQ is ACID's */
 }
 
 static void turn(uint32_t enc, int32_t d)
 {
     if (U.held >= 0) U.used = 1;
+    if (steps_page() && U.stepHeld >= 0 && enc >= ENC_KNOB1 && enc <= ENC_KNOB4) { step_turn(enc - ENC_KNOB1, d); return; }
     if (enc == ENC_SELECT) {
         if (npages() > 1u) { int32_t p = (int32_t)U.page + d; U.page = (uint8_t)(p < 0 ? 0 : p >= (int32_t)npages() ? (int32_t)npages() - 1 : p); }
+        else if (STEPS) toast("STEPS PLAY (SEQ)", 0);
         else { int32_t c = (int32_t)P.chapter + d; c = c < 0 ? 0 : c > 5 ? 5 : c; apply_chapter((uint32_t)c); toast(CHAPTERS[c].name, 0); changed(); }
         return;
     }
@@ -935,7 +1165,8 @@ static void draw_top(void)                                   /* 0..58: the page,
     if (edit) { chip(3, 3, U.part, U.rec); x = 18; }
     s[0] = 0;
     if (edit) { scat(s, TRK[U.part]); scat(s, ">"); }
-    scat(s, pg->name);
+    if (steps_page() && U.stepHeld >= 0) { scat(s, "STEP "); sint(s, U.stepHeld + 1); }
+    else scat(s, pg->name);
     if (npages() > 1u) { scat(s, " "); sint(s, U.page % npages() + 1u); scat(s, "/"); sint(s, npages()); }
     t5((int32_t)x, 5, s, INK);
     s[0] = 0;
@@ -957,6 +1188,12 @@ static void draw_top(void)                                   /* 0..58: the page,
             t5(x0 + 3, 21, "AUDIO CPU", mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
             continue;
         }
+        if (steps_page() && U.stepHeld >= 0) {
+            const char *lab;
+            step_cell(i, &lab, s);
+            t5(x0 + 3, 21, lab, hot ? LIME : mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
+            continue;
+        }
         if (k == PM_NONE) continue;
         t5(x0 + 3, 21, PM[k].lab, hot ? LIME : mixc(PAPER, INK, 12));
         pfmt((uint32_t)k, s);
@@ -971,6 +1208,7 @@ static void draw_top(void)                                   /* 0..58: the page,
     cv_blit(0, 0);
 }
 
+static void draw_readout(void);
 static void draw_graph(void)                                 /* 58..166: the four functions on one pair of axes */
 {
     uint32_t c, s0 = E.s & ~31u, colNow = ((E.s & 31u) * 7u) + ((E.stepPh >> 16) * 7u >> 16);
@@ -1031,11 +1269,20 @@ static void draw_graph(void)                                 /* 58..166: the fou
         if (bNow) { cv_rect(x - 3, yNowB - 3, 7, 1, REDC); cv_rect(x - 3, yNowB + 3, 7, 1, REDC); cv_rect(x - 3, yNowB - 3, 1, 7, REDC); cv_rect(x + 3, yNowB - 3, 1, 7, REDC); }
         cv_rect(x - 3, yNowA - 2, 7, 5, REDC); cv_rect(x - 2, yNowA - 3, 5, 7, REDC);
     }
-    if (U.group == G_SEQ && U.page == 0u) { cv_rect(4, 4, 160, 11, LIME); t5(6, 6, "OCT+ NEW LINE  OCT- MUTATE", INK); }
-    /* the read-out: what a knob did (with its track), or a message */
+    if (U.group == G_SEQ && U.page % 2u == 1u) { cv_rect(4, 4, 160, 11, LIME); t5(6, 6, "OCT+ NEW LINE  OCT- MUTATE", INK); }
+    draw_readout();
+    cv_oy = 0;
+    cv_blit(0, 58);
+}
+static void draw_readout(void)                               /* what a knob did (with its track), or a message */
+{
     {
         char s[40]; s[0] = 0;
-        if (U.touch >= 0 && fm1_ms - U.touchT < 1000u) {
+        if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && steps_page() && U.stepHeld >= 0) {
+            const char *lab; char v[12];
+            step_cell((uint32_t)U.touch, &lab, v);
+            scat(s, "STEP "); sint(s, U.stepHeld + 1); scat(s, " "); scat(s, lab); scat(s, " "); scat(s, v);
+        } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u) {
             uint32_t k = cur_page()->k[U.touch];
             if (PM[k].part < 4u) { scat(s, TRK[PM[k].part]); scat(s, " "); }
             scat(s, PM[k].lab); scat(s, " "); pfmt(k, s + slen(s));
@@ -1047,7 +1294,38 @@ static void draw_graph(void)                                 /* 58..166: the fou
             tx((240 - w) / 2 + 7, 83, &FONT_S, s, LIME, INK);
         }
     }
-    cv_oy = 0;
+}
+
+static void draw_steps(void)                                 /* SEQ > STEPS: ACID's 16 steps, each over its white key */
+{
+    uint32_t L = step_len(), i, now = E.playing && STEPS ? E.s % L : 99u;
+    int32_t lo = P.root - 5, prevY = -1;
+    cv_begin(240, 108, PAPER);
+    if (!STEPS) { cv_rect(4, 3, 232, 11, REDC); t5(6, 5, "THE FORMULA PLAYS: KNOB2 -> STEPS", LIME); }
+    else { cv_rect(4, 3, 232, 11, LIME); t5(6, 5, "HOLD STEP+KNOBS  OCT+ NEW  OCT- MUTATE", INK); }
+    cv_rect(0, 86 - 10, 240, 1, mixc(PAPER, INK, 4));                                  /* the root */
+    for (i = 0; i < 16u; i++) {
+        int32_t x = 2 + (int32_t)i * 15, y, n;
+        uint32_t v = P.lane[0][i], acc = P.accM >> i & 1u, sld = P.sldM >> i & 1u;
+        char num[4] = "";
+        if (i >= L) { cv_rect(x, 18, 14, 84, mixc(PAPER, INK, 2)); prevY = -1; continue; }
+        if (i == now) cv_rect(x, 18, 14, 84, mixc(PAPER, INK, 4));
+        if (U.stepHeld == (int8_t)i) { cv_rect(x - 1, 17, 16, 1, REDC); cv_rect(x - 1, 102, 16, 1, REDC); cv_rect(x - 1, 17, 1, 86, REDC); cv_rect(x + 14, 17, 1, 86, REDC); }
+        sint(num, (int32_t)i + 1);
+        t5(x + (i < 9u ? 4 : 1), 93, num, mixc(PAPER, INK, i == now ? 16 : 9));
+        if (v == NONE) { cv_rect(x + 5, 84, 4, 1, mixc(PAPER, INK, 7)); prevY = -1; continue; }
+        n = step_note(i, L);
+        y = 86 - (n - lo) * 2; y = y < 20 ? 20 : y > 88 ? 88 : y;
+        if ((v & 128u) && prevY >= 0) cv_rect(x - 3, y - 2, 17, 5, mixc(PAPER, INK, 12));        /* a tie: one long bar */
+        else cv_rect(x + 1, y - 2 - (int32_t)acc, 12, 5 + 2 * (int32_t)acc, acc ? REDC : INK);
+        if (sld && i + 1u < L && P.lane[0][i + 1u] != NONE) {                                    /* a slide: a line into the next note */
+            int32_t n2 = step_note(i + 1u, L), y2 = 86 - (n2 - lo) * 2;
+            y2 = y2 < 20 ? 20 : y2 > 88 ? 88 : y2;
+            cv_line(x + 12, y, x + 16, y2, INK); cv_line(x + 12, y + 1, x + 16, y2 + 1, INK);
+        }
+        prevY = y;
+    }
+    draw_readout();
     cv_blit(0, 58);
 }
 
@@ -1073,7 +1351,10 @@ static void draw_rows(void)                                  /* 166..240: the fo
             acid_t a; voice_t v;
             cv_rect((int32_t)x, y + 15, 4, 1, mixc(PAPER, INK, 4));
             if (on && !muted) {
-                if (t == 0) { eval_acid(s, 0, &a, 1); if (a.gate) h = a.acc ? 12 : 8; }
+                if (t == 0 && STEPS) {                      /* the steps as written (also when stopped) */
+                    uint32_t i = s % step_len(), v = P.lane[0][i];
+                    if (v != NONE) h = (v & 128u) ? 5u : (P.accM >> i & 1u) ? 12u : 8u;
+                } else if (t == 0) { eval_acid(s, 0, &a, 1); if (a.gate) h = a.acc ? 12 : 8; }
                 else if (t == 1) { eval_bio(s, 20000u, &v); if (v.on) h = 4u + (uint32_t)(v.amp >> 12); }
                 else if (t == 2) { eval_kick(s, 0, &v); if (v.on && v.kt == 0u) h = 10; }
                 else { uint32_t hp = perc_on(s); h = hp == 2u ? 9u : hp ? 5u : 0u; }
@@ -1134,8 +1415,11 @@ static void app_main(void)
         up = prev & ~keys;
         prev = keys;
         for (k = 0; k < 27u; k++) {
-            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else key_down(k); }
-            if (up >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 0); else key_up(k); }
+            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else if (steps_page() && !U.rec) step_key(k, 1); else key_down(k); }
+            if (up >> k & 1u) {
+                if (U.stepHeld >= 0 && U.stepKey == k) step_key(k, 0);
+                else if (U.held >= 0 && has_layer(U.held)) layer_key(k, 0); else key_up(k);
+            }
         }
         /* buttons: PLAY and OCT at once; the others: a tap = page, a hold = layer */
         b = fm1_input_edges(&rel);
@@ -1143,7 +1427,11 @@ static void app_main(void)
             if (b >> k & 1u) {
                 if (k == BTN_PLAY) { if (E.playing) E.stopReq = 1; else E.startReq = 1; }
                 else if (k == BTN_OCT_UP || k == BTN_OCT_DOWN) {
-                    if (U.group == G_SEQ) { if (k == BTN_OCT_UP) new_line(); else mutate_line(); }
+                    if (steps_page() && U.stepHeld >= 0) {
+                        step_set_note((uint32_t)U.stepHeld, step_note((uint32_t)U.stepHeld, step_len()) + (k == BTN_OCT_UP ? 12 : -12));
+                        U.stepEdited = 1; count_lanes(); changed(); if (live[0] >= 0) step_preview(1);
+                    } else if (steps_page()) { if (k == BTN_OCT_UP) gen_steps(); else mutate_steps(); }
+                    else if (U.group == G_SEQ) { if (k == BTN_OCT_UP) new_line(); else mutate_line(); }
                     else { int32_t o = (int8_t)U.rootOct + (k == BTN_OCT_UP ? 1 : -1); if (o >= -1 && o <= 1) U.rootOct = (uint8_t)(int8_t)o; { char s[4] = ""; sint(s, o); toast("OCT ", s); } }
                 } else { U.held = (int8_t)k; U.heldT = fm1_ms; U.used = 0; }
             }
@@ -1167,7 +1455,7 @@ static void app_main(void)
         /* the screen: the graph about 30 times a second, the rest when it changes */
         if (fm1_ms - lastFrame >= 33u) {
             lastFrame = fm1_ms;
-            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u) draw_keymap(); else draw_graph();
+            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u) draw_keymap(); else if (steps_page()) draw_steps(); else draw_graph();
             draw_rows();
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
         }
