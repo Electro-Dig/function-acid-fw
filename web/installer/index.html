@@ -8,7 +8,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FN ACID · 函数 Acid 固件安装</title>
-<meta name="description" content="FN ACID 0.32：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="description" content="FN ACID 0.33：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
 <meta name="theme-color" content="#c4e45a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22/%3E%3C/svg%3E">
 <style>
@@ -149,7 +149,7 @@ footer p{margin:0 0 8px}
   <section class="hero">
     <div>
       <h1><span class="fn">FN</span> ACID</h1>
-      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.32 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.32 test</span></p>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.33 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.33 test</span></p>
       <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
       <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
       <ul class="chips">
@@ -185,12 +185,12 @@ footer p{margin:0 0 8px}
         <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
       </div>
       <div class="card go-box">
-        <div class="ver"><span class="pill">FN ACID 0.32</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <div class="ver"><span class="pill">FN ACID 0.33</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
         <button id="go" disabled data-t="install"></button>
         <progress id="bar" max="100" value="0"></progress>
         <p id="status" role="status" aria-live="polite"></p>
         <pre id="log" class="lcd"></pre>
-        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 85cb2784e10c4493ee53a4547a6673d7050877b339ee9fbdc35bd79fc58fabdd</p>
+        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 9c4ab87aae0395271e8f8d375fe547ebde71161bd8edcb82d611fae885af7eae</p>
         <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
         <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
       </div>
@@ -201,7 +201,8 @@ footer p{margin:0 0 8px}
     <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
     <div class="card">
       <ul class="log-list">
-        <li class="now"><div class="v">0.32<small>2026-10-19</small></div><div><ul data-l="zh"><li>滤波器换成 303 那种 4 层梯形（声音更圆、共振更集中）；原来的 2 层 SVF 在 EDIT › ACID › TYPE</li><li>8 条预设旋律连音色一起载入：按住 HOME + 白键 9–16，或 STEPS 页拧 PRESETS</li><li>录旋钮动作（X0X 的做法）：播放时按 REC，拧 CUTOFF / RESO / ENV / DECAY，录进 4 小节</li><li>0.31 存过的状态会保留</li></ul><ul data-l="en"><li>A 303-style 4-pole ladder filter (rounder, a more focused resonance); the 2-pole SVF stays on EDIT › ACID › TYPE</li><li>8 preset lines, each with its sound: HOME held + white keys 9–16, or the PRESETS knob on STEPS</li><li>Knob motion (as X0X records it): REC while playing, turn CUTOFF / RESO / ENV / DECAY, 4 bars</li><li>A 0.31 save still loads</li></ul></div></li>
+        <li class="now"><div class="v">0.33<small>2026-10-20</small></div><div><ul data-l="zh"><li>存档：按住 SAVE，点白键 1–7 = 读出 U1–U7，长按（0.7 秒）= 存进去</li><li>ACID 最多 32 步：LENGTH 拧过 16，新的步先复制原来的线；再按一次 SEQ 翻到 17–32 步</li><li>混音：按两下 GLO 进 MIX 页，四个旋钮 = ACID / BIO / KICK / PERC 的音量</li></ul><ul data-l="en"><li>Slots: hold SAVE, tap white key 1-7 = load U1-U7, hold it 0.7 s = save</li><li>ACID up to 32 steps: past 16 the new steps start as a copy; press SEQ again for steps 17-32</li><li>Mixer: GLO twice = MIX, the four knobs = ACID / BIO / KICK / PERC levels</li></ul></div></li>
+        <li><div class="v">0.32<small>2026-10-19</small></div><div><ul data-l="zh"><li>滤波器换成 303 那种 4 层梯形（声音更圆、共振更集中）；原来的 2 层 SVF 在 EDIT › ACID › TYPE</li><li>8 条预设旋律连音色一起载入：按住 HOME + 白键 9–16，或 STEPS 页拧 PRESETS</li><li>录旋钮动作（X0X 的做法）：播放时按 REC，拧 CUTOFF / RESO / ENV / DECAY，录进 4 小节</li><li>0.31 存过的状态会保留</li></ul><ul data-l="en"><li>A 303-style 4-pole ladder filter (rounder, a more focused resonance); the 2-pole SVF stays on EDIT › ACID › TYPE</li><li>8 preset lines, each with its sound: HOME held + white keys 9–16, or the PRESETS knob on STEPS</li><li>Knob motion (as X0X records it): REC while playing, turn CUTOFF / RESO / ENV / DECAY, 4 bars</li><li>A 0.31 save still loads</li></ul></div></li>
         <li><div class="v">0.31<small>2026-10-19</small></div><div><ul data-l="zh"><li>到处只有一个版本号（安装页 = 开机画面）；网站上线 fn-acid.netlify.app</li><li>安装页提醒：写入时让标签页留在前台</li></ul><ul data-l="en"><li>One version number everywhere (this page = the start screen); the site on fn-acid.netlify.app</li><li>The installer asks to keep its tab in front while it writes</li></ul></div></li>
         <li><div class="v">0.3<small>2026-10-19</small></div><div><ul data-l="zh"><li>DECAY 改成 303 的范围：按步模式 200 毫秒到 2 秒，屏幕显示毫秒</li><li>加了一点小混响（FX 按两下 = SPACE 页）</li><li>HOME + 白键 10（FILM）连视频里的音色一起载入</li><li>修了延时反馈过大时停不下来的问题</li></ul><ul data-l="en"><li>DECAY over a 303&#x27;s range on the steps: 200 ms to 2 s, shown in ms</li><li>A small room after the delay (FX twice = SPACE)</li><li>HOME + white key 10 (FILM) loads the film&#x27;s sound too</li><li>The delay no longer runs away at high FEEDBACK</li></ul></div></li>
         <li><div class="v">0.2<small>2026-10-19</small></div><div><ul data-l="zh"><li>开机是一张空白页；ACID 改成按步写（音 / 连音 / 休止，重音、滑音），公式还在</li><li>延时换成视频里的附点八分乒乓回声</li><li>FX 层：按住 FX 再按住白键 = 效果一直在，松手恢复；10–14 直接对曲线做运算</li></ul><ul data-l="en"><li>A blank start; ACID plays 16 steps you write (note / tie / rest, accent, slide), the formula one knob away</li><li>The acid film&#x27;s dotted-eighth ping-pong delay</li><li>The FX layer: hold FX + a white key; keys 10–14 are operations on the curve (y + 12, mirror, x / 2, 2x)</li></ul></div></li>
@@ -557,7 +558,7 @@ const TEXT = {
  "zh": {
   "intro": "用 USB 把 FM-1 直接接到电脑上（Chrome 或 Edge）。",
   "warn": "写入时不要拔 USB 线。",
-  "install": "安装 FN ACID 0.32",
+  "install": "安装 FN ACID 0.33",
   "other": "English",
   "editor": "编辑器",
   "edOffline": "下载编辑器",
@@ -602,7 +603,7 @@ const TEXT = {
  "en": {
   "intro": "Connect the FM-1 straight to the computer by USB (Chrome or Edge).",
   "warn": "Do not unplug the USB cable while writing.",
-  "install": "Install FN ACID 0.32",
+  "install": "Install FN ACID 0.33",
   "other": "中文",
   "editor": "Editor",
   "edOffline": "Download the editor",
@@ -676,7 +677,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.32 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "85cb2784e10c4493ee53a4547a6673d7050877b339ee9fbdc35bd79fc58fabdd"};
+const meta = {"version": "0.33 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "9c4ab87aae0395271e8f8d375fe547ebde71161bd8edcb82d611fae885af7eae"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {

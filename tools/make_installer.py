@@ -16,6 +16,13 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.33', '2026-10-20',
+     ['存档：按住 SAVE，点白键 1–7 = 读出 U1–U7，长按（0.7 秒）= 存进去',
+      'ACID 最多 32 步：LENGTH 拧过 16，新的步先复制原来的线；再按一次 SEQ 翻到 17–32 步',
+      '混音：按两下 GLO 进 MIX 页，四个旋钮 = ACID / BIO / KICK / PERC 的音量'],
+     ['Slots: hold SAVE, tap white key 1-7 = load U1-U7, hold it 0.7 s = save',
+      'ACID up to 32 steps: past 16 the new steps start as a copy; press SEQ again for steps 17-32',
+      'Mixer: GLO twice = MIX, the four knobs = ACID / BIO / KICK / PERC levels']),
     ('0.32', '2026-10-19',
      ['滤波器换成 303 那种 4 层梯形（声音更圆、共振更集中）；原来的 2 层 SVF 在 EDIT › ACID › TYPE',
       '8 条预设旋律连音色一起载入：按住 HOME + 白键 9–16，或 STEPS 页拧 PRESETS',
