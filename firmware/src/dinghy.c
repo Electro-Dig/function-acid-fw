@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.3"
+#define APP_VER "0.31"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -1589,6 +1589,7 @@ static void app_main(void)
     count_lanes();
     for (k = 0; k <= 16u; k++) pal_paper[k] = mixc(PAPER, INK, k);
     lcd_fill(0, 0, 240, 240, PAPER);
+    toast(APP_NAME " ", APP_VER);                                           /* the version, for a second */
     for (;;) {
         uint32_t keys, down, up, b, rel, e;
         platform_poll();

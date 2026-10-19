@@ -1,12 +1,20 @@
-# FN ACID (Function Acid) — 0.1 test
+# FN ACID (Function Acid) — test builds
 
 **This fork is FN ACID**, an FM-1 firmware where every track is a function y(s, φ) drawn on one pair of axes and
-played as it is drawn, after AA (@measure_plan) "trying to turn math into acid". The app is
-[firmware/src/dinghy.c](firmware/src/dinghy.c); the tables come from `tools/gen_acid_tables.py`; the browser
-prototype it is ported from lives in `visual-interaction-lab/04-function-acid`. Test guide (Chinese): [TEST-ZH.md](TEST-ZH.md).
-Local installer: `python3 tools/make_installer.py` after `./build.sh`, then serve `web/installer` and open it in Chrome.
-Host test: `tests/scripts/acid-tour.txt`. Package identity `FM-1_956`. GPL-3.0, standing on Dinghy (zvenson),
-SLOOP (isod89) and Felucca (Leo Kuroshita, Hügelton Instruments).
+played as it is drawn, after AA (@measure_plan) "trying to turn math into acid". ACID plays 16 steps you write (the
+303's way) or the AA formula; a dotted-eighth ping-pong delay and a small room; FX held + a key = punch-in effects,
+some of them operations on the curve itself (y + 12, a mirror, x / 2, 2x).
+
+- **Install**: https://fn-acid.netlify.app (Chrome / Edge, Web MIDI; SLOOP 2.7.1's installer pointed at this package).
+  Guide (Chinese): [TEST-ZH.md](TEST-ZH.md), also on the site.
+- **Versions**: steps of 0.01 (0.31, 0.32 ...), from `APP_VER` in [firmware/src/dinghy.c](firmware/src/dinghy.c); the
+  device shows it at power-on. Package identity `FM-1_956` (a test identity).
+- **Build**: `./build.sh`, then `python3 tools/make_installer.py` (web/installer for a local test, build/site for
+  Netlify: `netlify deploy --prod --dir build/site --site f9e120e7-2d77-473a-a97a-cb1fe11a48a8 --no-build`).
+  Host tests: `tests/scripts/*.txt`. Tables: `tools/gen_acid_tables.py`.
+- The browser prototype it is ported from: `visual-interaction-lab/04-function-acid`.
+
+GPL-3.0, standing on Dinghy (zvenson), SLOOP (isod89) and Felucca (Leo Kuroshita, Hügelton Instruments).
 
 ---
 

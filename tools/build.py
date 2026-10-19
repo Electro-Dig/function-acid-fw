@@ -49,6 +49,8 @@ SDK_SHA256 = {
 
 PRODUCT = "FM-1_956"                # Dinghy: 99N (OUR_LOADER in the installer wants FM-1_9NN). Your fork: pick your own
 VERSION = None                      # APP_VER for release builds
+# a test build: the version in firmware/src/dinghy.c (Function Acid counts in 0.01 steps)
+APP_VER = re.search(r'#define APP_VER "([^"]+)"', (Path(__file__).resolve().parent.parent / "firmware" / "src" / "dinghy.c").read_text())[1]
 
 
 def toolchain():
@@ -151,7 +153,7 @@ def build_loader():
 # ---- app
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or APP_VER}"']
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),

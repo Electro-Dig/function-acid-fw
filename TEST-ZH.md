@@ -1,4 +1,4 @@
-# FN ACID 0.3 测试版 · 上机说明
+# FN ACID 测试版 · 上机说明
 
 这是「函数 Acid」的实机测试固件（身份号 FM-1_956）。底座是开源的 Dinghy（zvenson），它沿用 SLOOP / Felucca 的底层（开机、USB、刷机通道、救援模式），我们只换了声音和画面。
 
@@ -10,9 +10,11 @@
 
 ## 刷入
 
-1. 启动本地安装页（在这台电脑上）：`python -m http.server 8814 -d D:/claude/function-acid-fw/web/installer`，或在 Claude 里用 launch 配置 `acid-installer`。
-2. Chrome 打开 http://localhost:8814 ，页面顶部绿色框写着 FN ACID 0.3 test。浏览器问 MIDI 权限时允许。
-3. 按 Install，等进度条走完（几分钟，别拔线）。FM-1 会自己重启，屏幕变成荧光绿的“函数 Acid”。
+1. Chrome 打开 **https://fn-acid.netlify.app** ，页面顶部绿色框写着当前版本（例如 FN ACID 0.31 test）。浏览器问 MIDI 权限时允许。
+2. 按 Install，等进度条走完（两三分钟，别拔线）。FM-1 会自己重启，屏幕变成荧光绿的“函数 Acid”。
+3. **写入时别切走这个标签页**，也别把浏览器最小化：放到后台的标签页会被浏览器限速，每块数据之间的等待会从 10 毫秒变成 1 秒左右，整个过程能慢上好几倍。
+
+本机测试版也可以用：`python -m http.server 8814 -d D:/claude/function-acid-fw/web/installer`，再开 http://localhost:8814 。
 
 这个安装页就是 SLOOP 2.7.1 自己的安装页（同一套代码），只是把要装的包换成了 FN ACID。
 
@@ -21,6 +23,10 @@
 - **想回 SLOOP**：打开 SLOOP 的安装页 https://isod89.github.io/sloop-fm1/webapp/installer/ 按 Install；或在 FM-1 Firmware Hub https://thefirmwarehub.com/ 选 SLOOP。再用编辑器把备份恢复。
 - **开机就崩 / 黑屏**：按住 **OCT−** 再开机 = USB 救援模式（只有升级通道，没有声音），然后用上面任何一个安装页重新刷。连续两次开机崩溃，它也会自己进救援模式。
 - 安装页最下面还有“回官方 V15”。
+
+## 版本号
+
+从 0.3 之后每次更新加 0.01：0.31、0.32、0.33……安装页和机器开机画面显示同一个号。改动记录在 GitHub：https://github.com/Electro-Dig/function-acid-fw
 
 ## 0.3 改了什么
 
