@@ -1,0 +1,21 @@
+# FN ACID 0.32 host test: the ROLLER line (HOME + white key 11), REC on, turn CUTOFF up and down over 2 bars (knob
+# motion), REC off; then it plays the motion back by itself. Then the old filter (EDIT > TYPE) for comparison.
+100 hold 8
+300 keys 0x40000
+400 keys 0
+500 release 8
+600 btn 12
+2000 shot
+2100 btn 13
+2200 enc 2 6
+2500 enc 2 6
+2800 enc 2 6
+3100 enc 2 4
+3400 enc 2 -6
+3700 enc 2 -6
+4000 enc 2 -8
+4300 enc 2 -6
+4500 btn 13
+6000 shot
+9600 shot
+12000 end

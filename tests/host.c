@@ -60,10 +60,10 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #endif
 #include "gfx.c"
 
-static uint8_t host_store[256 + 4];
+static uint8_t host_store[1024 + 4];
 static int settings_load(void *p, uint32_t n)
 {
-    if (host_store[0] != 1 || n > 256u) return -1;
+    if (host_store[0] != 1 || n > 1024u) return -1;
     memcpy(p, host_store + 4, n);
     return 0;
 }

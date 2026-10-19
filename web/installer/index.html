@@ -5,7 +5,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FN ACID 0.31 installer (test)</title><style>#nl-badge-frame{display:none!important}</style>
+<title>FN ACID 0.32 installer (test)</title><style>#nl-badge-frame{display:none!important}</style>
 
 <style>
   :root { --bg: #000; --fg: #f2f2f2; --dim: #8a8a92; --tile: #16161a; --line: #2a2a30;
@@ -75,7 +75,7 @@
   <div class="strip"><i></i><i></i><i></i><i></i></div>
   
   
-  <h1>FN ACID 0.31 test</h1><div style="background:#c4e45a;color:#1d1d1b;padding:12px 14px;border-radius:10px;margin:12px 0;font:15px/1.6 system-ui,sans-serif"><b>FN ACID 0.31 test</b> (Function Acid, built on Dinghy / SLOOP / Felucca, GPL-3.0). This page is SLOOP 2.7.1&#39;s installer pointed at the FN ACID package. Back up SLOOP first (SLOOP editor: Projects &rarr; Backup). To go back: <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP&#39;s installer</a> or <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">the FM-1 Firmware Hub</a>. Stuck: hold OCT&minus; while switching on (USB rescue), then install again.<br><b><a href="guide.html">中文说明：怎么刷、怎么玩</a></b> &middot; <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">source (GitHub)</a><br><small>Keep this tab in front while it writes: a tab in the background is slowed down by the browser.</small></div>
+  <h1>FN ACID 0.32 test</h1><div style="background:#c4e45a;color:#1d1d1b;padding:12px 14px;border-radius:10px;margin:12px 0;font:15px/1.6 system-ui,sans-serif"><b>FN ACID 0.32 test</b> (Function Acid, built on Dinghy / SLOOP / Felucca, GPL-3.0). This page is SLOOP 2.7.1&#39;s installer pointed at the FN ACID package. Back up SLOOP first (SLOOP editor: Projects &rarr; Backup). To go back: <a href="https://isod89.github.io/sloop-fm1/webapp/installer/" target="_blank" rel="noopener">SLOOP&#39;s installer</a> or <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">the FM-1 Firmware Hub</a>. Stuck: hold OCT&minus; while switching on (USB rescue), then install again.<br><b><a href="guide.html">中文说明：怎么刷、怎么玩</a></b> &middot; <a href="https://github.com/Electro-Dig/function-acid-fw" target="_blank" rel="noopener">source (GitHub)</a><br><small>Keep this tab in front while it writes: a tab in the background is slowed down by the browser.</small></div>
   <p data-t="intro"></p>
   <p data-t="warn"></p>
   <p><button id="go" disabled data-t="install"></button></p>
@@ -507,7 +507,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.31 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "4302e60e1b4187d46224ddf43a4314e3db4e5ffe680918d4f345ce9e93b31f89"};
+const meta = {"version": "0.32 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "85cb2784e10c4493ee53a4547a6673d7050877b339ee9fbdc35bd79fc58fabdd"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {

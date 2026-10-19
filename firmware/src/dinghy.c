@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.31"
+#define APP_VER "0.32"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -40,8 +40,11 @@ typedef struct {
     uint8_t aSrc, sLen; int8_t sTrans;           /* ACID: 0 = its steps (lane 0), 1 = the formula; steps 1..16; transpose */
     uint16_t accM, sldM;                         /* ACID steps: accent, slide into the next step */
     uint8_t lane[4][LANE];                       /* NONE = empty, 0..127 a note, | 128 a tie */
+    /* 0.32: after the lanes, so a 0.31 save (which ends here) still loads */
+    uint8_t aFilt;                               /* ACID's filter: 0 = 4-pole ladder (the 303's kind), 1 = 2-pole SVF */
+    uint8_t mot[4][64];                          /* knob motion over 4 bars: CUTOFF RESO ENV DECAY, 255 = none */
 } params_t;
-_Static_assert(sizeof(params_t) <= 256u, "the settings page holds 256 bytes");
+_Static_assert(sizeof(params_t) <= 1024u, "the settings sector holds 1024 bytes here");
 static params_t P;
 #define MAGIC 0xA7
 #define STEPS (P.aSrc == 0u)
@@ -134,29 +137,73 @@ static void defaults(void)
     for (i = 0; i < 16u; i++) P.lane[0][i] = (uint8_t)P.root;
     P.terms = (uint16_t)((P.terms | T_FOUR | T_PERC) & ~T_BIO);
     P.cut = 40;
+    P.aFilt = 0;
+    memset(P.mot, 255, sizeof P.mot);
 }
-/* starting points for the steps (HOME held: white keys 9, 10): [semitones above the root, accent, slide, rest] */
-static const int8_t FILM_PAT[16][4] = {     /* the acid film's line (function-sounds/video/acid-film.html) */
-    {0, 1, 0, 0}, {0, 0, 0, 0}, {12, 0, 1, 0}, {0, 0, 0, 0}, {3, 0, 0, 0}, {0, 0, 0, 1}, {12, 1, 0, 0}, {10, 0, 1, 0},
-    {0, 0, 0, 0}, {0, 1, 0, 0}, {7, 0, 0, 0}, {12, 0, 1, 0}, {12, 0, 0, 0}, {3, 0, 0, 1}, {15, 1, 0, 0}, {0, 0, 0, 0}};
-static void load_steps(int film)
+/* ---- the patterns: a 16-step line and its sound, ready to play; then yours to change. HOME held: white keys 9-16;
+ * on SEQ > STEPS the PRESETS knob walks them. Steps: {semitones above the root, accent, slide, 0 note / 1 rest / 2 tie} */
+#define PN_ 0
+#define PR_ 1
+#define PT_ 2
+typedef struct {
+    const char *name, *lab;
+    int8_t st[16][4];
+    uint8_t bpm, cut, res, env, dec, acc, gate, drive, dMix, dFb, dTone, rMix, hPat;
+} pattern_t;
+static const pattern_t PATS[8] = {
+    {"BLANK", "BLANK", {{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},
+                        {0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0},{0,0,0,0}},
+     120, 40, 88, 72, 30, 70, 70, 30, 60, 54, 64, 40, 0},
+    /* the acid film's drop (function-sounds/video/acid-film.html, 0:48-0:56) */
+    {"FILM", "FILM", {{0,1,0,0},{0,0,0,0},{12,0,1,0},{0,0,0,0},{3,0,0,0},{0,0,0,1},{12,1,0,0},{10,0,1,0},
+                      {0,0,0,0},{0,1,0,0},{7,0,0,0},{12,0,1,0},{12,0,0,0},{3,0,0,1},{15,1,0,0},{0,0,0,0}},
+     120, 80, 100, 68, 18, 110, 50, 30, 52, 54, 64, 40, 1},
+    /* a rolling 16th line, octave jumps */
+    {"ROLLER", "ROLL", {{0,1,0,0},{0,0,0,0},{12,0,1,0},{0,0,0,0},{0,0,0,0},{12,1,0,0},{0,0,0,0},{0,0,0,0},
+                        {0,1,0,0},{0,0,0,0},{12,0,1,0},{0,0,0,0},{3,0,0,0},{0,0,0,0},{12,1,1,0},{10,0,0,0}},
+     128, 70, 92, 70, 24, 100, 45, 40, 40, 40, 64, 30, 1},
+    /* sparse, long slides, a lot of resonance, a long decay */
+    {"SQUELCH", "SQLCH", {{0,1,0,0},{0,0,0,2},{12,0,1,0},{15,0,0,0},{0,0,0,1},{12,1,1,0},{7,0,0,0},{7,0,0,2},
+                          {0,0,0,0},{0,0,0,1},{3,1,1,0},{10,0,0,0},{12,0,0,0},{12,0,0,2},{15,1,0,0},{0,0,0,1}},
+     124, 60, 112, 90, 60, 120, 60, 50, 52, 54, 64, 50, 1},
+    /* few notes on the off-grid, made for the delay */
+    {"DUB 3/16", "DUB", {{0,1,0,0},{0,0,0,1},{0,0,0,1},{0,0,0,0},{0,0,0,1},{0,0,0,1},{12,0,1,0},{10,0,0,0},
+                         {0,0,0,1},{0,0,0,1},{7,1,0,0},{0,0,0,1},{0,0,0,1},{3,0,1,0},{0,0,0,0},{0,0,0,1}},
+     118, 74, 96, 60, 40, 90, 55, 30, 90, 72, 50, 60, 0},
+    /* a minor arpeggio up and down */
+    {"ARP MINOR", "ARP", {{0,1,0,0},{3,0,0,0},{7,0,0,0},{12,0,1,0},{15,0,0,0},{12,0,0,0},{7,0,0,0},{3,0,0,0},
+                          {0,1,0,0},{3,0,0,0},{7,0,0,0},{12,0,0,0},{17,1,1,0},{15,0,0,0},{12,0,0,0},{10,0,1,0}},
+     130, 66, 100, 76, 30, 100, 50, 40, 45, 50, 64, 35, 1},
+    /* two notes, ties and rests: the hypnotic kind */
+    {"HYPNO", "HYPNO", {{0,1,0,0},{0,0,0,2},{0,0,0,1},{10,0,0,0},{0,0,0,0},{0,0,0,1},{0,1,0,0},{0,0,0,1},
+                        {0,0,0,0},{0,0,0,2},{0,0,0,1},{10,0,1,0},{12,0,0,0},{0,0,0,1},{0,1,0,0},{0,0,0,1}},
+     125, 56, 104, 84, 48, 100, 50, 40, 56, 60, 64, 40, 0},
+    /* fast, octaves, screaming */
+    {"RAVE", "RAVE", {{0,1,0,0},{12,0,0,0},{0,0,0,0},{12,1,0,0},{0,0,0,0},{12,0,1,0},{15,0,0,0},{12,0,0,0},
+                      {0,1,0,0},{12,0,0,0},{0,0,0,0},{12,0,0,0},{3,1,1,0},{15,0,0,0},{10,0,1,0},{12,0,0,0}},
+     136, 78, 110, 100, 20, 120, 40, 90, 35, 40, 64, 25, 1},
+};
+#define NPATS 8u
+static uint8_t patNow;
+static void load_pattern(uint32_t k)
 {
+    const pattern_t *q = &PATS[k % NPATS];
     uint32_t i;
+    patNow = (uint8_t)(k % NPATS);
     P.aSrc = 0; P.sLen = 16; P.sTrans = 0; P.accM = P.sldM = 0; P.autoSong = 0;
     for (i = 0; i < LANE; i++) P.lane[0][i] = NONE;
     for (i = 0; i < 16u; i++) {
-        if (!film) { P.lane[0][i] = (uint8_t)P.root; continue; }
-        if (!FILM_PAT[i][3]) P.lane[0][i] = (uint8_t)(P.root + FILM_PAT[i][0]);
-        if (FILM_PAT[i][1]) P.accM |= (uint16_t)(1u << i);
-        if (FILM_PAT[i][2]) P.sldM |= (uint16_t)(1u << i);
+        const int8_t *t = q->st[i];
+        if (t[3] == PN_) P.lane[0][i] = (uint8_t)(P.root + t[0]);
+        else if (t[3] == PT_ && i) P.lane[0][i] = (uint8_t)((P.root + t[0]) | 128);
+        if (t[1]) P.accM |= (uint16_t)(1u << i);
+        if (t[2]) P.sldM |= (uint16_t)(1u << i);
     }
-    if (film) {   /* the film's drop (acid-film.html, 0:48-0:56): 120 BPM, saw, cutoff ~400 Hz, reso high, env ~2 octaves,
-                   * decay 280 ms, gate half a step, accent strong; echo 3/16 at 42 %; kick ducks the acid 30 %; 16th hats */
-        P.bpm = 120; P.aWave = 0; P.aSub = 0; P.aTune = 0; P.aLvl = 100; P.cut = 80; P.res = 100; P.env = 68; P.aDec = 18;
-        P.aAcc = 110; P.aGate = 50; P.aGlide = 0; P.aDrive = 30;
-        P.dTime = 2; P.dFb = 54; P.dMix = 52; P.dTone = 64; P.rMix = 40;
-        P.kDuck = 40; P.hPat = 1; P.terms |= T_KICK | T_FOUR | T_PERC; P.terms &= (uint16_t)~T_BIO; P.mutes = 0;
-    }
+    P.bpm = q->bpm; P.aWave = 0; P.aSub = 0; P.aTune = 0; P.aLvl = 100; P.cut = q->cut; P.res = q->res; P.env = q->env;
+    P.aDec = q->dec; P.aAcc = q->acc; P.aGate = q->gate; P.aGlide = 0; P.aDrive = q->drive;
+    P.dTime = 2; P.dFb = q->dFb; P.dMix = q->dMix; P.dTone = q->dTone; P.rMix = q->rMix;
+    P.kDuck = 40; P.hPat = q->hPat; P.terms |= T_KICK | T_FOUR | T_PERC; P.terms &= (uint16_t)~T_BIO; P.mutes = 0;
+    memset(P.mot, 255, sizeof P.mot);                                  /* a new line: no old knob motion */
 }
 static void count_lanes(void)
 {
@@ -338,6 +385,27 @@ static void eval_acid(uint32_t s, uint32_t p16, acid_t *o, int noglide)   /* wit
     }
     if (f & FN_OCT) o->y += 12 << 8;                                                        /* y + 12 */
 }
+/* knob motion (X0X's idea): with REC on and the music playing, turning CUTOFF / RESO / ENV / DECAY writes the value
+ * into its 64-step lane (4 bars); playing back, the lane moves the knob, smoothly from step to step. Turning a knob
+ * takes over from its lane while you turn it. REC held + white key 5 clears all four. */
+static const uint8_t MOT_OFF[4] = {__builtin_offsetof(params_t, cut), __builtin_offsetof(params_t, res),
+                                   __builtin_offsetof(params_t, env), __builtin_offsetof(params_t, aDec)};
+static volatile uint32_t motTouch[4];
+static uint8_t motAny;                                                   /* bit m: lane m has values */
+static int32_t mv(uint32_t m, uint32_t s, uint32_t p16)                  /* the value now: the lane's, or the knob's */
+{
+    uint32_t i = s & 63u, a = P.mot[m][i], b;
+    if (a == 255u || !run || fm1_ms - motTouch[m] < 500u) return ((const uint8_t *)&P)[MOT_OFF[m]];
+    b = P.mot[m][(i + 1u) & 63u];
+    if (b == 255u) b = a;
+    return (int32_t)((a * (65536u - p16) + b * p16) >> 16);
+}
+static void mot_count(void)
+{
+    uint32_t m, i;
+    motAny = 0;
+    for (m = 0; m < 4u; m++) for (i = 0; i < 64u; i++) if (P.mot[m][i] != 255u) { motAny |= (uint8_t)(1u << m); break; }
+}
 static uint32_t tau_ms(uint32_t dec)             /* the steps' DECAY: 200 ms .. 2 s, as on a 303 (log) */
 {
     static const uint16_t TAU[17] = {200, 233, 272, 316, 369, 430, 501, 584, 681, 794, 925, 1078, 1257, 1465, 1707, 1990, 2000};
@@ -346,17 +414,17 @@ static uint32_t tau_ms(uint32_t dec)             /* the steps' DECAY: 200 ms .. 
 }
 static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
 {
-    int32_t base = (24 + ((P.cut * 72) >> 7)) << 8, e, amt;
+    int32_t base = (24 + ((mv(0, s, p16) * 72) >> 7)) << 8, e, amt;
     if (P.lDep && P.lDest == 0) base += ((lfo_at(s, p16) * P.lDep) >> 15) * 6144 / 127;
     {   /* the filter envelope runs from the attack (over ties and slides); on the steps an accent closes fast, as on a 303 */
         uint32_t a = o->age > (24u << 16) ? (24u << 16) : o->age, x;
         if (STEPS) {                                     /* e^(-t / tau): kk = 64 / tau in steps; an accent: 200 ms */
-            uint32_t kk = 960000u / ((o->acc ? 200u : tau_ms(P.aDec)) * P.bpm);
+            uint32_t kk = 960000u / ((o->acc ? 200u : tau_ms((uint32_t)mv(3, s, p16))) * P.bpm);
             x = (a * (kk ? kk : 1u)) >> 14;
-        } else x = (a * (2u + ((127u - P.aDec) >> 4))) >> 8;
+        } else x = (a * (2u + ((127u - (uint32_t)mv(3, s, p16)) >> 4))) >> 8;
         e = expneg((int32_t)(x > 4095u ? 4095u : x));
     }
-    amt = ((P.env * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
+    amt = ((mv(2, s, p16) * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
     if (fxFn & FN_SQUELCH) { base += 10 << 8; amt += 14; }
     return base + ((amt * e * 256) >> 15);
 }
@@ -460,6 +528,7 @@ static struct {
     volatile uint8_t playing, chBar, startReq, stopReq;
     uint32_t sinc, ctr;
     uint32_t aPh, aSub, aInc; int32_t aAmp, aAmpT, lp, bp, f, damp, aDrv; uint8_t acc, kick_;
+    int32_t y1, y2, y3, y4, g, kq;                           /* the 4-pole ladder */
     uint32_t bPh, bInc; int32_t bAmp, bAmpT, bLp, bK;
     uint32_t kPh, kInc; int32_t kAmp, kAmpT, kClk, kLp, kDrv, duck;
     uint32_t nz; int32_t hEnv, hDk, hA, hy, hx;
@@ -574,9 +643,12 @@ static void control(void)
     E.aAmpT = (E.aAmpT * E.duck) >> 15;
     fcq = (int32_t)(inc_q8(cutoff_at(&oA, s, p16)) / 20861u);
     E.f = fcq < 23000 ? fcq : 23000;
+    E.g = 32767 - expneg((fcq < 40000 ? fcq : 40000) >> 7);   /* one pole of the ladder: g = 1 - e^-w */
     {
-        int32_t res = (fxFn & FN_SQUELCH) && P.res < 112u ? 112 : P.res;
+        int32_t res = mv(1, s, p16);
+        if ((fxFn & FN_SQUELCH) && res < 112) res = 112;
         E.damp = 32768 - ((res * 31500) >> 7);               /* Q14: 2.0 .. 0.08 */
+        E.kq = res * 126;                                    /* the ladder's feedback, Q12: 0 .. 3.7 (no self-oscillation, as on a 303) */
     }
     E.aDrv = 12 + (P.aDrive >> 2);
     E.bInc = inc_q8(oB.y);
@@ -619,19 +691,32 @@ static void app_audio(int32_t *out, uint32_t n)
             if (E.kClk > 20) { v += (noise() * E.kClk) >> 15; E.kClk -= E.kClk >> 7; }
             mix += (sat((v * E.kDrv) >> 4) * E.kAmp) >> 15;
         }
-        /* T1 ACID: a wave and a sub -> Chamberlin SVF */
+        /* T1 ACID: a wave and a sub -> a 4-pole ladder (the 303's kind of filter: 24 dB an octave, the resonance fed back
+         * through a soft clip, the bass thinning as it rises) or the Chamberlin SVF (12 dB, brighter) */
         E.aPh += E.aInc; E.aSub += E.aInc >> 1;
         E.aAmp += (E.aAmpT - E.aAmp) >> 6;
         {
             int32_t saw = (int32_t)(E.aPh >> 16) - 32768, sq = E.aPh < 0x80000000u ? 26000 : -26000, src, hp;
             src = P.aWave == 0 ? saw : P.aWave == 1 ? sq : P.aWave == 2 ? (E.aPh < 0x40000000u ? 26000 : -26000) : (saw + sq) >> 1;
             if (P.aSub) src = (src * (127 - (P.aSub >> 1)) + (E.aSub < 0x80000000u ? 26000 : -26000) * (P.aSub >> 1)) >> 7;
-            E.lp += (E.f * E.bp) >> 15;
-            hp = (src >> 1) - E.lp - ((E.damp * E.bp) >> 14);
-            if (hp > 65535) hp = 65535; else if (hp < -65535) hp = -65535;
-            E.bp += (E.f * hp) >> 15;
-            if (E.bp > 60000) E.bp = 60000; else if (E.bp < -60000) E.bp = -60000;
-            if (E.lp > 60000) E.lp = 60000; else if (E.lp < -60000) E.lp = -60000;
+            if (P.aFilt == 0u) {
+                int32_t u = (src >> 1) - ((E.kq * E.y4) >> 12), u3;
+                if (u > 32767) u = 32767; else if (u < -32767) u = -32767;
+                u3 = (((u * u) >> 15) * u) >> 15;
+                u -= u3 / 3;                                     /* soft clip: |u| <= 21845 */
+                E.y1 += (E.g * (u - E.y1)) >> 15;
+                E.y2 += (E.g * (E.y1 - E.y2)) >> 15;
+                E.y3 += (E.g * (E.y2 - E.y3)) >> 15;
+                E.y4 += (E.g * (E.y3 - E.y4)) >> 15;
+                E.lp = E.y4 + ((E.y4 * E.kq) >> 13);             /* x (1 + k / 2), as the film does */
+            } else {
+                E.lp += (E.f * E.bp) >> 15;
+                hp = (src >> 1) - E.lp - ((E.damp * E.bp) >> 14);
+                if (hp > 65535) hp = 65535; else if (hp < -65535) hp = -65535;
+                E.bp += (E.f * hp) >> 15;
+                if (E.bp > 60000) E.bp = 60000; else if (E.bp < -60000) E.bp = -60000;
+                if (E.lp > 60000) E.lp = 60000; else if (E.lp < -60000) E.lp = -60000;
+            }
             if (E.aAmp > 8) { int32_t a = (sat((E.lp * E.aDrv) >> 4) * E.aAmp) >> 15; mix += a; wet += a; }
         }
         /* T2 BIO: the animal's wavetable, a little noise, a one-pole low-pass */
@@ -823,13 +908,14 @@ static const char *const L_CHORD[] = {"M7", "MAJ7", "SUS", "OCT", "5TH", "DIM"};
 static const char *const L_ONOFF[] = {"OFF", "ON"};
 static const char *const L_BPER[] = {"2 STEP", "4 STEP", "8 STEP", "16 STEP", "32 STEP", "64 STEP"};
 static const char *const L_SRC[] = {"STEPS", "FORMULA"};
+static const char *const L_FILT[] = {"303 4P", "SVF 2P"};
 enum { PM_CUT, PM_RES, PM_ENV, PM_ADEC, PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL, PM_ADRIVE, PM_AACC, PM_AGATE, PM_AGLIDE,
        PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL, PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE, PM_BPER, PM_BPHASE,
        PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE, PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK,
        PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL, PM_HDEC,
        PM_N, PM_OFF, PM_DENS, PM_SWING, PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST, PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE,
        PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL,
-       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_NONE };
+       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_AFILT, PM_NONE };
 static const pm_t PM[] = {
     {"CUTOFF", O(cut), 0, 127, 0, F_NUM, 0, 0}, {"RESO", O(res), 0, 120, 0, F_NUM, 0, 0}, {"ENV AMT", O(env), 0, 127, 0, F_NUM, 0, 0},
     {"DECAY", O(aDec), 0, 127, 0, F_NUM, 0, 0}, {"WAVE", O(aWave), 0, 3, 0, F_LIST, 0, L_WAVE}, {"SUB", O(aSub), 0, 127, 0, F_NUM, 0, 0},
@@ -854,6 +940,7 @@ static const pm_t PM[] = {
     {"KICK LVL", O(kLvl), 0, 127, 0, F_NUM, 2, 0},
     {"TONE", O(dTone), 0, 127, 0, F_NUM, 9, 0}, {"LENGTH", O(sLen), 1, 16, 0, F_NUM, 9, 0}, {"PLAYS", O(aSrc), 0, 1, 0, F_LIST, 9, L_SRC},
     {"TRANSPOSE", O(sTrans), -12, 12, 1, F_ST, 9, 0}, {"REVERB", O(rMix), 0, 127, 0, F_NUM, 9, 0},
+    {"FILTER", O(aFilt), 0, 1, 0, F_LIST, 0, L_FILT},
 };
 static int32_t pget(uint32_t k) { const uint8_t *b = (const uint8_t *)&P + PM[k].off; return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b; }
 static void pset(uint32_t k, int32_t v)
@@ -886,12 +973,12 @@ static void pfmt(uint32_t k, char *s)
 enum { G_HOME, G_EDIT, G_ENV, G_LFO, G_FX, G_SEL, G_ARP, G_SEQ, G_GLO, G_N };
 typedef struct { const char *name; uint8_t k[4]; } page_t;
 static const page_t PG_HOME = {"HOME", {PM_CUT, PM_RES, PM_ENV, PM_ADEC}};
-static const page_t PG_EDIT[4][2] = {
-    {{"OSC", {PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL}}, {"FILTER", {PM_CUT, PM_RES, PM_ENV, PM_ADRIVE}}},
-    {{"ANIMAL", {PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL}}, {"TIMBRE", {PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE}}},
-    {{"TONE", {PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE}}, {"LEVEL", {PM_KLVL, PM_KDUCK, PM_NONE, PM_NONE}}},
-    {{"SOURCE", {PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL}}, {"SOURCE", {PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL}}}};
-static const uint8_t NEDIT[4] = {2, 2, 2, 1};
+static const page_t PG_EDIT[4][3] = {
+    {{"OSC", {PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL}}, {"FILTER", {PM_CUT, PM_RES, PM_ENV, PM_ADRIVE}}, {"TYPE", {PM_AFILT, PM_NONE, PM_NONE, PM_NONE}}},
+    {{"ANIMAL", {PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL}}, {"TIMBRE", {PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE}}, {"", {0}}},
+    {{"TONE", {PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE}}, {"LEVEL", {PM_KLVL, PM_KDUCK, PM_NONE, PM_NONE}}, {"", {0}}},
+    {{"SOURCE", {PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL}}, {"", {0}}, {"", {0}}}};
+static const uint8_t NEDIT[4] = {3, 2, 2, 1};
 static const page_t PG_ENV[4] = {{"ENV", {PM_ADEC, PM_AACC, PM_AGATE, PM_AGLIDE}}, {"CALL", {PM_BPER, PM_BPHASE, PM_BDRIFT, PM_BQUANT}},
                                  {"ENV", {PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK}}, {"ENV", {PM_HDEC, PM_HTONE, PM_HPAT, PM_HLVL}}};
 static const page_t PG_OTHER[] = {
@@ -1026,6 +1113,16 @@ static void key_up(uint32_t k)
     uint32_t t = U.keyTrk[k];
     if (live[t] == (int16_t)U.keyNote[k]) { liveE[t] = (E.s << 16) + (E.stepPh >> 16); live[t] = -1; }
     if (U.recKey == (int8_t)k) U.recKey = -1;
+}
+static void tick_motion(void)                    /* REC on, playing: a knob being turned writes into its lane */
+{
+    uint32_t m;
+    if (!U.rec || !E.playing) return;
+    for (m = 0; m < 4u; m++)
+        if (fm1_ms - motTouch[m] < 400u) {
+            uint8_t v = ((const uint8_t *)&P)[MOT_OFF[m]];
+            if (P.mot[m][E.s & 63u] != v) { P.mot[m][E.s & 63u] = v; motAny |= (uint8_t)(1u << m); changed(); }
+        }
 }
 static void tick_rec(void)
 {
@@ -1212,6 +1309,7 @@ static void layer_key(uint32_t k, int down)
         else if (i == 1) clear_lane(1);
         else if (i == 2 && U.part < 2u) { P.laneMode[U.part] ^= 1u; toast(TRK[U.part], P.laneMode[U.part] ? " EXACT" : " FOLLOW"); changed(); }
         else if (i == 3) { P.keyLock ^= 1u; toast("KEY LOCK ", P.keyLock ? "ON" : "OFF"); changed(); }
+        else if (i == 4) { memset(P.mot, 255, sizeof P.mot); motAny = 0; toast("KNOB MOTION CLEARED", 0); changed(); }
         break;
     case BTN_FX:
         if (w) fx_key((uint32_t)i, down);
@@ -1221,7 +1319,7 @@ static void layer_key(uint32_t k, int down)
         break;
     case BTN_HOME:
         if (down && w && i < 6) { apply_chapter((uint32_t)i); riseStart = -1; toast(CHAPTERS[i].name, 0); changed(); }
-        if (down && w && (i == 8 || i == 9)) { load_steps(i == 9); count_lanes(); toast(i == 9 ? "STEPS: FILM" : "STEPS: BLANK", 0); changed(); }
+        if (down && w && i >= 8 && i < 16) { load_pattern((uint32_t)(i - 8)); count_lanes(); toast("LINE: ", PATS[i - 8].name); changed(); }
         break;
     case BTN_EDIT: case BTN_ENV:
         if (!down || !w) return;
@@ -1241,10 +1339,10 @@ static const char *layer_label(uint32_t k, char *buf)       /* what key k does i
     switch (U.held) {
     case BTN_SEQ: if (w && i < 10) return TERM_NAMES[i]; if (!w) { scat(buf, "N"); sint(buf, NQ[i]); return buf; } break;
     case BTN_GLO: if (w && i < 4) return TRK[i]; break;
-    case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; break;
+    case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; if (w && i == 4) return "KNOBS"; break;
     case BTN_FX: if (w && i < 16) return FX_LAB[i]; break;
     case BTN_SEL: snote(buf, 53 + (int32_t)k - 24); return buf;
-    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i == 8) return "BLANK"; if (w && i == 9) return "FILM"; break;
+    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i >= 8 && i < 16) return PATS[i - 8].lab; break;
     case BTN_EDIT: case BTN_ENV: if (w && i < 4) return TRK[i]; if (w && i >= 8 && (uint32_t)(i - 8) < NPRE[U.part]) { scat(buf, "P"); sint(buf, i - 7); return buf; } break;
     case BTN_ARP: if (w && i < 6) return L_CHORD[i]; break;
     default: break;
@@ -1304,6 +1402,10 @@ static void turn(uint32_t enc, int32_t d)
         if (U.group != G_EDIT && U.group != G_ENV) U.group = G_EDIT;
         U.page = 0; toast(TRK[U.part], 0); return;
     }
+    if (enc == ENC_PRESETS && steps_page()) {                          /* on the steps: walk the patterns */
+        load_pattern((uint32_t)((int32_t)patNow + d + (int32_t)NPATS) % NPATS); count_lanes();
+        toast("LINE: ", PATS[patNow].name); changed(); return;
+    }
     if (enc == ENC_PRESETS) {
         if (U.group != G_EDIT && U.group != G_ENV) { U.group = G_EDIT; U.page = 0; }
         apply_preset(U.part, (uint32_t)((int32_t)P.pre[U.part] + d + NPRE[U.part]) % NPRE[U.part]);
@@ -1317,6 +1419,10 @@ static void turn(uint32_t enc, int32_t d)
         step = span > 40 ? (d > 1 || d < -1 ? d * 3 : d * 2) : d;           /* wide ranges move faster */
         pset(k, pget(k) + step);
         U.touch = (int8_t)i; U.touchT = fm1_ms;
+        {
+            uint32_t m;
+            for (m = 0; m < 4u; m++) if (PM[k].off == MOT_OFF[m]) { motTouch[m] = fm1_ms; tick_motion(); }
+        }
         changed();
     }
 }
@@ -1380,6 +1486,14 @@ static void draw_top(void)                                   /* 0..58: the page,
         if (k == PM_NONE) continue;
         t5(x0 + 3, 21, PM[k].lab, hot ? LIME : mixc(PAPER, INK, 12));
         pfmt((uint32_t)k, s);
+        {   /* knob motion: the moving value, and a red mark */
+            uint32_t m;
+            for (m = 0; m < 4u; m++)
+                if (PM[k].off == MOT_OFF[m] && (motAny >> m & 1u)) {
+                    cv_rect(x0 + 49, 21, 5, 5, REDC);
+                    if (E.playing) { s[0] = 0; if (k == PM_ADEC && STEPS) { sint(s, (int32_t)tau_ms((uint32_t)mv(3, E.s, E.stepPh >> 16))); scat(s, "MS"); } else sint(s, mv(m, E.s, E.stepPh >> 16)); }
+                }
+        }
         if (text_w(&FONT_S, s) <= 54) tx(x0 + 3, 31, &FONT_S, s, fg, bg);
         else t5(x0 + 3, 36, s, fg);
         {
@@ -1585,7 +1699,12 @@ static void draw_keymap(void)                                /* holding a button
 static void app_main(void)
 {
     uint32_t prev = 0, lastFrame = 0, lastTop = 0, k, ledT = 0;
-    if (settings_load(&P, sizeof P) != 0 || P.magic != MAGIC) defaults();
+    if (settings_load(&P, sizeof P) == 0 && P.magic == MAGIC) { }
+    else if (settings_load(&P, (__builtin_offsetof(params_t, aFilt) + 1u) & ~1u) == 0 && P.magic == MAGIC) {   /* 0.3x */
+        P.aFilt = 0; memset(P.mot, 255, sizeof P.mot);
+    } else defaults();
+    if (P.aFilt > 1u) P.aFilt = 0;
+    mot_count();
     count_lanes();
     for (k = 0; k <= 16u; k++) pal_paper[k] = mixc(PAPER, INK, k);
     lcd_fill(0, 0, 240, 240, PAPER);
@@ -1627,7 +1746,7 @@ static void app_main(void)
         }
         /* encoders */
         for (e = 0; e < 7u; e++) { int32_t d = fm1_enc_take(e); if (d) turn(e, d); }
-        tick_rec();
+        tick_rec(); tick_motion();
         /* LEDs: the page's button, PLAY, REC */
         if (fm1_ms - ledT > 50u) {
             static const int8_t GBTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX, BTN_SEL, BTN_ARP, BTN_SEQ, BTN_GLO};
