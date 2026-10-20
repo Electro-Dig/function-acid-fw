@@ -16,6 +16,13 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.35', '2026-10-20',
+     ['909 鼓机（来自 X0X）：EDIT 选第 3 轨，KIT 选 909；再按 SEQ = 鼓的编辑页，11 个鼓一行一行排开',
+      '鼓页：黑键选哪一行（并试听），白键是 16 步（点一下开，再点重音，再点关），KNOB1–4 = 这一行的音高 / 衰减 / 音量 / 另一项',
+      '存档格改成 6 个（U1–U6）；0.33/0.34 的存档自动转过来（U7 舍去）'],
+     ['909 drum machine (from X0X): EDIT on track 3, KIT = 909; then SEQ = the drum page, all 11 voices as rows',
+      'Drum page: black keys pick a row (and play it), white keys are the 16 steps (on, accent, off), KNOB1-4 = the row tune / decay / level / one more',
+      'Slots are now 6 (U1-U6); 0.33/0.34 saves are converted (U7 dropped)']),
     ('0.34', '2026-10-20',
      ['测试版：打开芯片的硬件浮点（FPU），GLO 页第 2 格显示 FPU OK / ERR，为 808/909 鼓做准备；其它和 0.33 一样'],
      ["Test: the chip's FPU on; GLO page cell 2 shows FPU OK / ERR (for the 808/909 drums); otherwise as 0.33"]),

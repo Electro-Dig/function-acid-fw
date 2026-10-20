@@ -14,11 +14,22 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.34"
+#define APP_VER "0.35"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
 #include "acid_tables.h"
+/* T3's 909 kit: X0X's port of 9W9 / ER-99 (GPL-3.0), unchanged, in this one unit (float: the FPU, checked in 0.34) */
+#include "dsp/drum909.c"
+#undef LIN
+#undef EXP
+#undef DRIVE
+#undef DIST
+#undef SENDS
+#undef LEVEL
+#undef PAN
+#undef NP
+#undef FITS
 
 #define LANE 32u
 #define NONE 255u
@@ -45,13 +56,18 @@ typedef struct {
     uint8_t mot[4][64];                          /* knob motion over 4 bars: CUTOFF RESO ENV DECAY, 255 = none */
     /* 0.33 */
     uint16_t accHi, sldHi;                       /* ACID steps 17-32: accent, slide */
+    /* 0.35: T3's kit and its drum machine (909: 11 rows of 16 steps, each with 4 knobs) */
+    uint8_t kit, drSel;                          /* 0 = FUNC (the function kick), 1 = 909; the row being edited */
+    uint16_t drRow[11], drAcc[11], drMute;       /* steps on, accented; muted rows */
+    uint8_t drPot[11][4];                        /* KNOB1-4 of each row: TUNE, DECAY, LEVEL, one more (see KN9) */
 } params_t;
 static params_t P;
-/* what is kept in flash: the current state and 7 slots (SAVE held: white keys 1-7) */
-#define NSLOT 7u
+/* what is kept in flash: the current state and 6 slots (SAVE held: white keys 1-6) */
+#define NSLOT 6u
 typedef struct { params_t cur; params_t slot[NSLOT]; uint8_t used[8]; } store_t;
 _Static_assert(sizeof(store_t) <= 4084u, "the settings sector holds 4 KiB");
 static store_t ST;
+static int32_t duckEnv;                                     /* the 909 BD's push on the duck, Q15 */
 static uint32_t accB(void) { return P.accM | (uint32_t)P.accHi << 16; }          /* the 32 steps' accents */
 static uint32_t sldB(void) { return P.sldM | (uint32_t)P.sldHi << 16; }
 static void setAccB(uint32_t v) { P.accM = (uint16_t)v; P.accHi = (uint16_t)(v >> 16); }
@@ -128,6 +144,23 @@ static void apply_preset(uint32_t t, uint32_t k)
     else if (t == 2) { v = PRE_KICK[k].v; P.kTop = v[0]; P.kTone = v[1]; P.kClick = v[2]; P.kDrive = v[3]; P.kPdec = v[4]; P.kBody = v[5]; P.kBase = (int8_t)v[6]; P.kDuck = v[7]; P.terms |= T_KICK; }
     else { v = PRE_PERC[k].v; P.hType = v[0]; P.hTone = v[1]; P.hDec = v[2]; P.hPat = v[3]; P.hLvl = v[4]; P.terms |= T_PERC; }
 }
+/* ---- the 909 rows: names, and which of 9W9's params KNOB1-4 reach (TUNE, DECAY, LEVEL, one more; -1 none) */
+static const char *const DRN[11] = {"BD", "SD", "LT", "MT", "HT", "RS", "CP", "CH", "OH", "CR", "RD"};
+static const int8_t KN9[11][4] = {{0, 2, 3, 1}, {0, 3, 4, 2}, {0, 1, 2, 3}, {0, 1, 2, 3}, {0, 1, 2, 3}, {1, -1, 0, 2},
+                                  {1, 2, 0, 3}, {2, 0, 1, 3}, {2, 0, 1, 3}, {0, 2, 1, 3}, {0, 2, 1, 3}};
+static void drum_defaults(params_t *q)
+{
+    uint32_t v, i;
+    q->kit = 0; q->drSel = 0; q->drMute = 0;
+    memset(q->drRow, 0, sizeof q->drRow); memset(q->drAcc, 0, sizeof q->drAcc);
+    q->drRow[0] = 0x1111u; q->drRow[1] = 0x1010u; q->drRow[7] = 0x4444u;          /* BD 4/4, SD 2 and 4, CH off-beats */
+    q->drAcc[0] = 0x0001u;
+    for (v = 0; v < 11u; v++) for (i = 0; i < 4u; i++) {
+        const x0x_param_t *pp = KN9[v][i] >= 0 ? drum909_param((int)v, KN9[v][i]) : 0;
+        q->drPot[v][i] = pp ? pp->def : 0;
+    }
+    q->drPot[6][2] = 70;                                                         /* the clap: well under 9W9's 122 */
+}
 static void defaults(void)
 {
     uint32_t t, i;
@@ -149,6 +182,7 @@ static void defaults(void)
     P.cut = 40;
     P.aFilt = 0;
     memset(P.mot, 255, sizeof P.mot);
+    drum_defaults(&P);
 }
 /* ---- the patterns: a 16-step line and its sound, ready to play; then yours to change. HOME held: white keys 9-16;
  * on SEQ > STEPS the PRESETS knob walks them. Steps: {semitones above the root, accent, slide, 0 note / 1 rest / 2 tie} */
@@ -445,7 +479,7 @@ static void eval_kick(uint32_t s, uint32_t p16, voice_t *o)
     int32_t note = 57, drop;
     trig_t tg;
     o->on = 0; o->amp = 0; o->kt = 0; o->y = P.root << 8;
-    if (!(t & T_KICK)) return;
+    if (!(t & T_KICK) || P.kit) return;
     if (run && !laneN[2]) {
         if ((t & T_FILL) && bar >= 14u) kt = p16;
         else if (t & T_FOUR) kt = ((s & 3u) << 16) | p16;
@@ -647,7 +681,8 @@ static void control(void)
     E.kAmpT = (P.mutes & 4u) ? 0 : (oK.amp * P.kLvl) >> 7;
     if (oK.on && oK.kt < 1200u) E.kClk = P.kClick * 200;
     E.kDrv = 12 + (P.kDrive >> 2);
-    E.duck = 32767 - ((((P.mutes & 4u) ? 0 : oK.amp) * P.kDuck) >> 7);
+    if (P.kit) duckEnv -= duckEnv >> 8;                     /* ~90 ms */
+    E.duck = 32767 - ((((P.mutes & 4u) ? 0 : P.kit ? duckEnv : oK.amp) * P.kDuck) >> 7);
     E.aInc = inc_q8(oA.y);
     E.aAmpT = (!oA.gate || (P.mutes & 1u)) ? 0 : (((oA.acc ? 24000 + P.aAcc * 60 : 24000) * P.aLvl) >> 7);
     E.aAmpT = (E.aAmpT * E.duck) >> 15;
@@ -679,6 +714,29 @@ static void control(void)
 }
 
 static volatile uint32_t cpu_us, cpu_max;
+static drum909_t D9;
+static float drBuf[256];
+static volatile uint16_t drDirty = 0x7FFu, drAud;            /* rows whose knobs changed; rows to play now (a black key) */
+static uint8_t d9ready;
+static void drum_apply(void)                                /* between blocks: the knobs, the auditions */
+{
+    uint32_t m, v, i;
+    if (!d9ready) { drum909_init(&D9); d9ready = 1; drDirty = 0x7FFu; }
+    m = drDirty; drDirty = 0;
+    for (v = 0; v < 11u; v++) if (m >> v & 1u) for (i = 0; i < 4u; i++) if (KN9[v][i] >= 0) drum909_set(&D9, (int)v, KN9[v][i], P.drPot[v][i]);
+    m = drAud; drAud = 0;
+    for (v = 0; v < 11u; v++) if (m >> v & 1u) { drum909_trigger(&D9, (int)v, 1.0f); if (v == 0u) duckEnv = 32767; }
+}
+static void drum_step(uint32_t s)                           /* the hits of step s */
+{
+    uint32_t v, j = s & 15u;
+    if (P.mutes & 4u) return;
+    for (v = 0; v < 11u; v++)
+        if ((P.drRow[v] >> j & 1u) && !(P.drMute >> v & 1u)) {
+            drum909_trigger(&D9, (int)v, (P.drAcc[v] >> j & 1u) ? 1.0f : 88.0f / 127.0f);   /* as X0X: a plain hit ~3 dB under */
+            if (v == 0u) duckEnv = 32767;
+        }
+}
 /* 0.34: the FPU check. The same float sums in the audio ISR and in the main loop (which the ISR interrupts): 0 = not
  * run yet, 1 = right every time, 2+ = a wrong result was seen (the ISR would be corrupting floats). X0X uses this FPU. */
 static volatile uint32_t fpuIsr, fpuMain, fpu_us;
@@ -694,8 +752,24 @@ static int fpu_sum(uint32_t n)
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, t0 = fm1_ticks();
-    if (E.startReq) { E.startReq = 0; E.s = 0; E.stepPh = 0; E.chBar = 0; E.playing = 1; run = 1; if (P.autoSong) { apply_chapter(0); riseStart = -1; } control(); }
+    int started = 0;
+    if (E.startReq) { E.startReq = 0; E.s = 0; E.stepPh = 0; E.chBar = 0; E.playing = 1; run = 1; if (P.autoSong) { apply_chapter(0); riseStart = -1; } control(); started = 1; }
     if (E.stopReq) { E.stopReq = 0; E.playing = 0; run = 0; riseStart = -1; }
+    if (P.kit == 1u) {   /* the 909: find this block's step edges first (the same clock as below), render up to each, hit, go on */
+        uint32_t pos = 0, k;
+        drum_apply();
+        for (k = 0; k < n; k++) drBuf[k] = 0.0f;
+        if (E.playing) {
+            uint32_t ph = E.stepPh, st = E.s, base = P.bpm * 6494u;
+            if (started) drum_step(0);
+            for (k = 0; k < n; k++) {
+                uint32_t np = ph + base * 100u / (100u + ((st & 1u) ? 0u - P.swing : P.swing));
+                if (np < ph) { if (k > pos) { drum909_render(&D9, drBuf + pos, 0, 0, (int)(k - pos)); pos = k; } st++; drum_step(st); }
+                ph = np;
+            }
+        }
+        if (n > pos) drum909_render(&D9, drBuf + pos, 0, 0, (int)(n - pos));
+    }
     for (i = 0; i < n; i++) {
         int32_t mix = 0, wet = 0, dl, dr, md, l, r, rv = 0;
         uint32_t ns;
@@ -703,6 +777,10 @@ static void app_audio(int32_t *out, uint32_t n)
         ns = E.stepPh + E.sinc;
         if (ns < E.stepPh) { E.stepPh = ns; E.s++; on_step(); control(); } else E.stepPh = ns;
 
+        if (P.kit == 1u) {   /* the 909 (dry: not into the delay), at KICK LVL */
+            int32_t dv = (int32_t)(drBuf[i] * (float)(P.kLvl * 150));
+            mix += dv > 40000 ? 40000 : dv < -40000 ? -40000 : dv;
+        }
         /* T3 KICK: a sine (TONE pushes it towards a filtered saw) and a click */
         E.kPh += E.kInc;
         E.kAmp += (E.kAmpT - E.kAmp) >> 5;
@@ -861,7 +939,7 @@ static void app_audio(int32_t *out, uint32_t n)
 #define PAPER RGB(206, 234, 112)
 #define REDC RGB(216, 32, 74)
 static const uint16_t TCOL[4] = {RGB(29, 29, 27), RGB(176, 16, 58), RGB(29, 63, 174), RGB(122, 74, 0)};
-static const char *const TRK[4] = {"ACID", "BIO", "KICK", "PERC"};
+static const char *TRK[4] = {"ACID", "BIO", "KICK", "PERC"};   /* T3 reads "909" on the 909 kit */
 static uint16_t mixc(uint16_t a, uint16_t b, uint32_t t)   /* a towards b, t 0..16 */
 {
     uint32_t r = ((a >> 11) * (16u - t) + (b >> 11) * t) >> 4, g = (((a >> 5) & 63u) * (16u - t) + ((b >> 5) & 63u) * t) >> 4,
@@ -935,13 +1013,14 @@ static const char *const L_ONOFF[] = {"OFF", "ON"};
 static const char *const L_BPER[] = {"2 STEP", "4 STEP", "8 STEP", "16 STEP", "32 STEP", "64 STEP"};
 static const char *const L_SRC[] = {"STEPS", "FORMULA"};
 static const char *const L_FILT[] = {"303 4P", "SVF 2P"};
+static const char *const L_KIT[] = {"FUNC", "909"};
 enum { PM_CUT, PM_RES, PM_ENV, PM_ADEC, PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL, PM_ADRIVE, PM_AACC, PM_AGATE, PM_AGLIDE,
        PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL, PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE, PM_BPER, PM_BPHASE,
        PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE, PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK,
        PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL, PM_HDEC,
        PM_N, PM_OFF, PM_DENS, PM_SWING, PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST, PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE,
        PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL,
-       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_AFILT, PM_NONE };
+       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_AFILT, PM_KIT, PM_NONE };
 static const pm_t PM[] = {
     {"CUTOFF", O(cut), 0, 127, 0, F_NUM, 0, 0}, {"RESO", O(res), 0, 120, 0, F_NUM, 0, 0}, {"ENV AMT", O(env), 0, 127, 0, F_NUM, 0, 0},
     {"DECAY", O(aDec), 0, 127, 0, F_NUM, 0, 0}, {"WAVE", O(aWave), 0, 3, 0, F_LIST, 0, L_WAVE}, {"SUB", O(aSub), 0, 127, 0, F_NUM, 0, 0},
@@ -967,6 +1046,7 @@ static const pm_t PM[] = {
     {"TONE", O(dTone), 0, 127, 0, F_NUM, 9, 0}, {"LENGTH", O(sLen), 1, 32, 0, F_NUM, 9, 0}, {"PLAYS", O(aSrc), 0, 1, 0, F_LIST, 9, L_SRC},
     {"TRANSPOSE", O(sTrans), -12, 12, 1, F_ST, 9, 0}, {"REVERB", O(rMix), 0, 127, 0, F_NUM, 9, 0},
     {"FILTER", O(aFilt), 0, 1, 0, F_LIST, 0, L_FILT},
+    {"KIT", O(kit), 0, 1, 0, F_LIST, 2, L_KIT},
 };
 static int32_t pget(uint32_t k) { const uint8_t *b = (const uint8_t *)&P + PM[k].off; return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b; }
 static void pset(uint32_t k, int32_t v)
@@ -1006,13 +1086,13 @@ static void pfmt(uint32_t k, char *s)
 }
 
 /* ---- pages: 4 cells = KNOB1..4 */
-enum { G_HOME, G_EDIT, G_ENV, G_LFO, G_FX, G_SEL, G_ARP, G_SEQ, G_GLO, G_N };
+enum { G_HOME, G_EDIT, G_ENV, G_LFO, G_FX, G_SEL, G_ARP, G_SEQ, G_GLO, G_DRUM, G_N };
 typedef struct { const char *name; uint8_t k[4]; } page_t;
 static const page_t PG_HOME = {"HOME", {PM_CUT, PM_RES, PM_ENV, PM_ADEC}};
 static const page_t PG_EDIT[4][3] = {
     {{"OSC", {PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL}}, {"FILTER", {PM_CUT, PM_RES, PM_ENV, PM_ADRIVE}}, {"TYPE", {PM_AFILT, PM_NONE, PM_NONE, PM_NONE}}},
     {{"ANIMAL", {PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL}}, {"TIMBRE", {PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE}}, {"", {0}}},
-    {{"TONE", {PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE}}, {"LEVEL", {PM_KLVL, PM_KDUCK, PM_NONE, PM_NONE}}, {"", {0}}},
+    {{"KIT", {PM_KIT, PM_KLVL, PM_KDUCK, PM_NONE}}, {"TONE", {PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE}}, {"", {0}}},
     {{"SOURCE", {PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL}}, {"", {0}}, {"", {0}}}};
 static const uint8_t NEDIT[4] = {3, 2, 2, 1};
 static const page_t PG_ENV[4] = {{"ENV", {PM_ADEC, PM_AACC, PM_AGATE, PM_AGLIDE}}, {"CALL", {PM_BPER, PM_BPHASE, PM_BDRIFT, PM_BQUANT}},
@@ -1024,6 +1104,7 @@ static const page_t PG_OTHER[] = {
 static const page_t PG_STEPS = {"STEPS", {PM_SLEN, PM_ASRC, PM_SWING, PM_STRANS}};
 static const page_t PG_SPACE = {"SPACE", {PM_RMIX, PM_MDRIVE, PM_NONE, PM_NONE}};
 static const page_t PG_MIX = {"MIX", {PM_ALVL, PM_BLVL, PM_KLVL, PM_HLVL}};
+static const page_t PG_DRUM = {"DRUMS", {PM_NONE, PM_NONE, PM_NONE, PM_NONE}};
 
 static struct {
     uint8_t group, page, part, rec, rootOct;
@@ -1049,6 +1130,7 @@ static const page_t *cur_page(void)
     case G_SEL: return &PG_OTHER[2];
     case G_ARP: return &PG_OTHER[3];
     case G_SEQ: return U.page < seq_step_pages() ? &PG_STEPS : &PG_OTHER[4];
+    case G_DRUM: return &PG_DRUM;
     default: return U.page % 2u == 0u ? &PG_OTHER[5] : &PG_MIX;
     }
 }
@@ -1122,6 +1204,7 @@ static void clear_lane(int all)
 {
     uint32_t t, i;
     for (t = 0; t < 4u; t++) if (all || t == U.part) for (i = 0; i < LANE; i++) P.lane[t][i] = NONE;
+    if (all || U.part == 2u) { memset(P.drRow, 0, sizeof P.drRow); memset(P.drAcc, 0, sizeof P.drAcc); }
     count_lanes(); changed();
     toast(all ? "CLEARED ALL" : "CLEARED ", all ? 0 : TRK[U.part]);
 }
@@ -1332,6 +1415,20 @@ static int fx_on(uint32_t i)
     return i == 14u ? riseStart >= 0 : fxThrow;
 }
 
+static void drum_key(uint32_t k)
+{
+    int w, i = key_index(k, &w);
+    if (!w) { if (i < 11) { P.drSel = (uint8_t)i; drAud |= (uint16_t)(1u << i); toast(DRN[i], 0); } return; }
+    {
+        uint32_t v = P.drSel, b = 1u << i, on = P.drRow[v] & b, ac = P.drAcc[v] & b;
+        if (!on) P.drRow[v] |= (uint16_t)b;                                          /* off -> on */
+        else if (!ac) P.drAcc[v] |= (uint16_t)b;                                     /* on -> accent */
+        else { P.drRow[v] &= (uint16_t)~b; P.drAcc[v] &= (uint16_t)~b; }             /* accent -> off */
+        if (!E.playing) drAud |= (uint16_t)(1u << v);
+        changed();
+    }
+}
+
 static void layer_key(uint32_t k, int down)
 {
     int w, i = key_index(k, &w);
@@ -1371,7 +1468,7 @@ static void layer_key(uint32_t k, int down)
     case BTN_ARP:
         if (down && w && i < 6) { P.arpSet = (uint8_t)i; P.terms |= T_ARP; toast("CHORD ", L_CHORD[i]); changed(); }
         break;
-    case BTN_SAVE:                                   /* white keys 1-7: a tap loads U1-U7, a long press (0.7 s) saves into it */
+    case BTN_SAVE:                                   /* white keys 1-6: a tap loads U1-U6, a long press (0.7 s) saves into it */
         if (!w || i >= (int)NSLOT) break;
         if (down) { U.slotK = (int8_t)i; U.slotT = fm1_ms; U.slotArm = 0; break; }
         if (U.slotK != (int8_t)i) break;
@@ -1440,6 +1537,8 @@ static void tap(int b)
     if (GRP[b] < 0) return;
     if (U.group == (uint8_t)GRP[b]) U.page = (uint8_t)((U.page + 1u) % npages());
     else { U.group = (uint8_t)GRP[b]; U.page = 0; }
+    if (b == BTN_SEQ && P.kit && U.part == 2u && U.group != G_DRUM) { U.group = G_DRUM; U.page = 0; return; }   /* DRUMS */
+    if (b == BTN_SEQ && U.group == G_DRUM && GRP[b] == G_SEQ) { U.group = G_SEQ; U.page = 0; }
     if (U.group == G_SEQ) U.part = 0;                               /* SEQ is ACID's */
 }
 
@@ -1447,6 +1546,16 @@ static void turn(uint32_t enc, int32_t d)
 {
     if (U.held >= 0) U.used = 1;
     if (steps_page() && U.stepHeld >= 0 && enc >= ENC_KNOB1 && enc <= ENC_KNOB4) { step_turn(enc - ENC_KNOB1, d); return; }
+    if (U.group == G_DRUM && enc == ENC_SELECT) { int32_t r = (int32_t)P.drSel + d; P.drSel = (uint8_t)(r < 0 ? 0 : r > 10 ? 10 : r); drAud |= (uint16_t)(1u << P.drSel); return; }
+    if (U.group == G_DRUM && enc >= ENC_KNOB1 && enc <= ENC_KNOB4) {   /* the row's knobs */
+        uint32_t i = enc - ENC_KNOB1, v = P.drSel; int32_t ix = KN9[v][i], x;
+        const x0x_param_t *pp = ix >= 0 ? drum909_param((int)v, ix) : 0;
+        if (!pp) return;
+        x = (int32_t)P.drPot[v][i] + (pp->max > 40 ? (d > 1 || d < -1 ? d * 3 : d * 2) : d);
+        P.drPot[v][i] = (uint8_t)(x < 0 ? 0 : x > pp->max ? pp->max : x);
+        drDirty |= (uint16_t)(1u << v); U.touch = (int8_t)i; U.touchT = fm1_ms; changed();
+        return;
+    }
     if (enc == ENC_SELECT) {
         if (npages() > 1u) { int32_t p = (int32_t)U.page + d; U.page = (uint8_t)(p < 0 ? 0 : p >= (int32_t)npages() ? (int32_t)npages() - 1 : p); }
         else if (STEPS) toast("STEPS PLAY (SEQ)", 0);
@@ -1513,6 +1622,7 @@ static void draw_top(void)                                   /* 0..58: the page,
     s[0] = 0;
     if (edit) { scat(s, TRK[U.part]); scat(s, ">"); }
     if (steps_page() && U.stepHeld >= 0) { scat(s, "STEP "); sint(s, U.stepHeld + 1); }
+    else if (U.group == G_DRUM) { scat(s, "909 > "); scat(s, DRN[P.drSel]); }
     else scat(s, pg->name);
     if (steps_page() && P.sLen > 16u) scat(s, U.page ? " 17-32" : " 1-16");
     else if (npages() > 1u) { scat(s, " "); sint(s, U.page % npages() + 1u); scat(s, "/"); sint(s, npages()); }
@@ -1536,6 +1646,15 @@ static void draw_top(void)                                   /* 0..58: the page,
             t5(x0 + 3, 21, "AUDIO CPU", mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
             s[0] = 0; scat(s, "FPU "); scat(s, fpuIsr == 1u && fpuMain == 1u ? "OK " : fpuIsr && fpuMain ? "ERR " : "... "); sint(s, (int32_t)fpu_us); scat(s, "US");
             t5(x0 + 3, 47, s, fpuIsr > 1u || fpuMain > 1u ? REDC : fg);
+            continue;
+        }
+        if (U.group == G_DRUM) {
+            int32_t ix = KN9[P.drSel][i];
+            const x0x_param_t *pp = ix >= 0 ? drum909_param(P.drSel, ix) : 0;
+            if (!pp) continue;
+            s[0] = 0; sint(s, P.drPot[P.drSel][i]);
+            t5(x0 + 3, 21, pp->name, hot ? LIME : mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
+            cv_rect(x0 + 3, 50, 51, 2, hot ? mixc(INK, LIME, 5) : mixc(PAPER, INK, 4)); cv_rect(x0 + 3, 50, 51 * P.drPot[P.drSel][i] / (pp->max ? pp->max : 1), 2, fg);
             continue;
         }
         if (steps_page() && U.stepHeld >= 0) {
@@ -1636,7 +1755,11 @@ static void draw_readout(void)                               /* what a knob did 
 {
     {
         char s[40]; s[0] = 0;
-        if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && steps_page() && U.stepHeld >= 0) {
+        if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && U.group == G_DRUM) {
+            int32_t ix = KN9[P.drSel][U.touch];
+            const x0x_param_t *pp = ix >= 0 ? drum909_param(P.drSel, ix) : 0;
+            if (pp) { scat(s, DRN[P.drSel]); scat(s, " "); scat(s, pp->name); scat(s, " "); sint(s, P.drPot[P.drSel][U.touch]); }
+        } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && steps_page() && U.stepHeld >= 0) {
             const char *lab; char v[12];
             step_cell((uint32_t)U.touch, &lab, v);
             scat(s, "STEP "); sint(s, U.stepHeld + 1); scat(s, " "); scat(s, lab); scat(s, " "); scat(s, v);
@@ -1654,6 +1777,25 @@ static void draw_readout(void)                               /* what a knob did 
     }
 }
 
+static void draw_drums(void)                                 /* T3 on the 909: every row, each step over its white key */
+{
+    uint32_t r, j, now = E.playing ? E.s & 15u : 99u;
+    cv_begin(240, 108, PAPER);
+    cv_rect(4, 2, 232, 11, LIME); t5(6, 4, "BLACK KEY = ROW   WHITE: ON > ACCENT > OFF", INK);
+    for (r = 0; r < 11u; r++) {
+        int32_t y = 15 + (int32_t)r * 8, sel = r == P.drSel, mute = P.drMute >> r & 1u;
+        if (sel) cv_rect(0, y - 1, 240, 8, mixc(PAPER, RGB(255, 255, 232), 10));
+        t5(2, y, DRN[r], sel ? REDC : mixc(PAPER, INK, mute ? 5 : 13));
+        for (j = 0; j < 16u; j++) {
+            int32_t x = 17 + (int32_t)j * 14 - (int32_t)j / 4u * 0, on = P.drRow[r] >> j & 1u, ac = P.drAcc[r] >> j & 1u;
+            uint16_t c = on ? (ac ? REDC : (mute ? mixc(PAPER, INK, 6) : INK)) : mixc(PAPER, INK, (j & 3u) ? 3 : 5);
+            cv_rect(x, y, 12, 6, c);
+            if (j == now) { cv_rect(x, y + 6, 12, 1, INK); }
+        }
+    }
+    draw_readout();
+    cv_blit(0, 58);
+}
 static void draw_steps(void)                                 /* SEQ > STEPS: ACID's 16 steps, each over its white key */
 {
     uint32_t L = step_len(), i, now = E.playing && STEPS ? E.s % L : 99u, base = step_base();
@@ -1701,7 +1843,7 @@ static void draw_rows(void)                                  /* 166..240: the fo
         tx(20, y, &FONT_S, TRK[t], ink, bg);
         nm[0] = 0;
         if (muted) scat(nm, "MUTE"); else if (!on) scat(nm, "OFF");
-        else { if (laneN[t]) { scat(nm, "*"); sint(nm, laneN[t]); scat(nm, " "); } scat(nm, pre_name(t, P.pre[t])); }
+        else { if (laneN[t]) { scat(nm, "*"); sint(nm, laneN[t]); scat(nm, " "); } scat(nm, t == 2u && P.kit ? "DRUMS" : pre_name(t, P.pre[t])); }
         nm[9] = 0;
         t5(58, y + 5, nm, mixc(PAPER, INK, on && !muted ? 11 : 5));
         for (k = 0; k < 16u; k++) {
@@ -1714,6 +1856,7 @@ static void draw_rows(void)                                  /* 166..240: the fo
                     if (v != NONE) h = (v & 128u) ? 5u : (accB() >> i & 1u) ? 12u : 8u;
                 } else if (t == 0) { eval_acid(s, 0, &a, 1); if (a.gate) h = a.acc ? 12 : 8; }
                 else if (t == 1) { eval_bio(s, 20000u, &v); if (v.on) h = 4u + (uint32_t)(v.amp >> 12); }
+                else if (t == 2 && P.kit) { uint32_t r, c = 0; for (r = 0; r < 11u; r++) if (P.drRow[r] >> (s & 15u) & 1u) c++; h = c ? 4u + 3u * (c > 2u ? 2u : c) : 0u; }
                 else if (t == 2) { eval_kick(s, 0, &v); if (v.on && v.kt == 0u) h = 10; }
                 else { uint32_t hp = perc_on(s); h = hp == 2u ? 9u : hp ? 5u : 0u; }
             }
@@ -1759,15 +1902,32 @@ static void draw_keymap(void)                                /* holding a button
 }
 
 /* ================================================================ the main loop */
+#define OLDP 472u                                    /* sizeof params_t in 0.33 / 0.34 (up to sldHi) */
+_Static_assert(__builtin_offsetof(params_t, kit) == OLDP, "the 0.33 params end where kit begins");
+static uint8_t oldRaw[OLDP * 8u + 8u];
+static int load_old_store(void)                     /* 0.33 / 0.34: {params cur; params slot[7]; used[8]} */
+{
+    uint32_t k;
+    if (settings_load(oldRaw, sizeof oldRaw) != 0) return 0;
+    memset(&ST, 0, sizeof ST);
+    for (k = 0; k <= NSLOT; k++) {
+        params_t *q = k ? &ST.slot[k - 1u] : &ST.cur;
+        memcpy(q, oldRaw + OLDP * k, OLDP);
+        drum_defaults(q);
+        if (k) ST.used[k - 1u] = oldRaw[OLDP * 8u + k - 1u];
+    }
+    return ST.cur.magic == MAGIC;
+}
 static void app_main(void)
 {
     uint32_t prev = 0, lastFrame = 0, lastTop = 0, k, ledT = 0;
     if (settings_load(&ST, sizeof ST) == 0 && ST.cur.magic == MAGIC) P = ST.cur;
+    else if (load_old_store()) P = ST.cur;
     else {
         memset(&ST, 0, sizeof ST);
-        if (settings_load(&P, __builtin_offsetof(params_t, accHi)) == 0 && P.magic == MAGIC) { P.accHi = P.sldHi = 0; }   /* 0.32 */
+        if (settings_load(&P, __builtin_offsetof(params_t, accHi)) == 0 && P.magic == MAGIC) { P.accHi = P.sldHi = 0; drum_defaults(&P); }   /* 0.32 */
         else if (settings_load(&P, (__builtin_offsetof(params_t, aFilt) + 1u) & ~1u) == 0 && P.magic == MAGIC) {   /* 0.31 */
-            P.aFilt = 0; memset(P.mot, 255, sizeof P.mot); P.accHi = P.sldHi = 0;
+            P.aFilt = 0; memset(P.mot, 255, sizeof P.mot); P.accHi = P.sldHi = 0; drum_defaults(&P);
         } else defaults();
     }
     if (P.aFilt > 1u) P.aFilt = 0;
@@ -1785,7 +1945,7 @@ static void app_main(void)
         up = prev & ~keys;
         prev = keys;
         for (k = 0; k < 27u; k++) {
-            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else if (steps_page() && !U.rec) step_key(k, 1); else key_down(k); }
+            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else if (U.group == G_DRUM) drum_key(k); else if (steps_page() && !U.rec) step_key(k, 1); else key_down(k); }
             if (up >> k & 1u) {
                 if (U.stepHeld >= 0 && U.stepKey == k) step_key(k, 0);
                 else if (U.held >= 0 && has_layer(U.held)) layer_key(k, 0); else key_up(k);
@@ -1814,10 +1974,11 @@ static void app_main(void)
         /* encoders */
         for (e = 0; e < 7u; e++) { int32_t d = fm1_enc_take(e); if (d) turn(e, d); }
         tick_rec(); tick_motion();
+        TRK[2] = P.kit ? "909" : "KICK";
         if (fpu_sum(64)) { if (!fpuMain) fpuMain = 1; } else fpuMain++;   /* 0.34: floats here, interrupted by the audio */
         /* LEDs: the page's button, PLAY, REC */
         if (fm1_ms - ledT > 50u) {
-            static const int8_t GBTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX, BTN_SEL, BTN_ARP, BTN_SEQ, BTN_GLO};
+            static const int8_t GBTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX, BTN_SEL, BTN_ARP, BTN_SEQ, BTN_GLO, BTN_SEQ};
             ledT = fm1_ms;
             for (k = 2; k < 12u; k++) fm1_led_key(k, (int)k == GBTN[U.group]);
             fm1_led_key(BTN_PLAY, E.playing && ((E.s & 3u) < 2u));
@@ -1828,7 +1989,7 @@ static void app_main(void)
             lastFrame = fm1_ms;
             int fxShow = U.held == BTN_FX && (fxBufKey >= 0 || X.flags || fxFn || riseStart >= 0 || fxThrow);
             if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u && !fxShow) draw_keymap();
-            else if (steps_page() && !fxShow) draw_steps(); else draw_graph();
+            else if (U.group == G_DRUM && !fxShow) draw_drums(); else if (steps_page() && !fxShow) draw_steps(); else draw_graph();
             draw_rows();
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
         }

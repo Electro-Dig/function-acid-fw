@@ -15,7 +15,7 @@ some of them operations on the curve itself (y + 12, a mirror, x / 2, 2x).
   Host tests: `tests/scripts/*.txt`. Tables: `tools/gen_acid_tables.py`.
 - The browser prototype it is ported from: `visual-interaction-lab/04-function-acid`.
 
-GPL-3.0, standing on Dinghy (zvenson), SLOOP (isod89) and Felucca (Leo Kuroshita, Hügelton Instruments).
+GPL-3.0, standing on Dinghy (zvenson), SLOOP (isod89) and Felucca (Leo Kuroshita, Hügelton Instruments); the 909 kit is X0X's (Charles Vestal) port of 9W9 / ER-99 (see LICENSING.md).
 
 ---
 
