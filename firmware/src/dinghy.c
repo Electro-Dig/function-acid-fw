@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.33"
+#define APP_VER "0.34"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -679,6 +679,18 @@ static void control(void)
 }
 
 static volatile uint32_t cpu_us, cpu_max;
+/* 0.34: the FPU check. The same float sums in the audio ISR and in the main loop (which the ISR interrupts): 0 = not
+ * run yet, 1 = right every time, 2+ = a wrong result was seen (the ISR would be corrupting floats). X0X uses this FPU. */
+static volatile uint32_t fpuIsr, fpuMain, fpu_us;
+static int fpu_sum(uint32_t n)
+{
+    volatile float k = 0.5f;
+    float s = 0.0f, ph = 0.0f, q;
+    uint32_t i;
+    for (i = 0; i < n; i++) { s += (float)i * k; ph += 0.25f; if (ph >= 1.0f) ph -= 1.0f; }
+    q = (1.5f * 1.25f) / 0.5f;                                   /* 3.75 */
+    return s == 0.5f * (float)(n * (n - 1u) / 2u) && ph == 0.0f && q == 3.75f;   /* all exact in single precision */
+}
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t i, t0 = fm1_ticks();
@@ -834,6 +846,10 @@ static void app_audio(int32_t *out, uint32_t n)
         }
         X.pflags = X.flags;
         out[2u * i] += (l * 7) >> 3; out[2u * i + 1u] += (r * 7) >> 3;
+    }
+    {   uint32_t t1 = fm1_ticks();
+        if (fpu_sum(256)) { if (!fpuIsr) fpuIsr = 1; } else fpuIsr++;
+        fpu_us = (fm1_ticks() - t1) / FM1_TICKS_PER_US;
     }
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
     if (cpu_us > cpu_max) cpu_max = cpu_us;
@@ -1518,6 +1534,8 @@ static void draw_top(void)                                   /* 0..58: the page,
         if (k == PM_NONE && U.group == G_GLO && i == 1u) {          /* GLOBAL: how much of the 5.8 ms the sound takes */
             s[0] = 0; sint(s, (int32_t)(cpu_max * 100u / 5805u)); scat(s, "%");
             t5(x0 + 3, 21, "AUDIO CPU", mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
+            s[0] = 0; scat(s, "FPU "); scat(s, fpuIsr == 1u && fpuMain == 1u ? "OK " : fpuIsr && fpuMain ? "ERR " : "... "); sint(s, (int32_t)fpu_us); scat(s, "US");
+            t5(x0 + 3, 47, s, fpuIsr > 1u || fpuMain > 1u ? REDC : fg);
             continue;
         }
         if (steps_page() && U.stepHeld >= 0) {
@@ -1796,6 +1814,7 @@ static void app_main(void)
         /* encoders */
         for (e = 0; e < 7u; e++) { int32_t d = fm1_enc_take(e); if (d) turn(e, d); }
         tick_rec(); tick_motion();
+        if (fpu_sum(64)) { if (!fpuMain) fpuMain = 1; } else fpuMain++;   /* 0.34: floats here, interrupted by the audio */
         /* LEDs: the page's button, PLAY, REC */
         if (fm1_ms - ledT > 50u) {
             static const int8_t GBTN[G_N] = {BTN_HOME, BTN_EDIT, BTN_ENV, BTN_LFO, BTN_FX, BTN_SEL, BTN_ARP, BTN_SEQ, BTN_GLO};

@@ -16,6 +16,9 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.34', '2026-10-20',
+     ['测试版：打开芯片的硬件浮点（FPU），GLO 页第 2 格显示 FPU OK / ERR，为 808/909 鼓做准备；其它和 0.33 一样'],
+     ['Test: the chip's FPU on; GLO page cell 2 shows FPU OK / ERR (for the 808/909 drums); otherwise as 0.33']),
     ('0.33', '2026-10-20',
      ['存档：按住 SAVE，点白键 1–7 = 读出 U1–U7，长按（0.7 秒）= 存进去',
       'ACID 最多 32 步：LENGTH 拧过 16，新的步先复制原来的线；再按一次 SEQ 翻到 17–32 步',
