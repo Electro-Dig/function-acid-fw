@@ -1,0 +1,7 @@
+100 hold 8
+300 keys 0x10000
+400 keys 0
+500 release 8
+600 btn 12
+5000 btn 12
+25000 end

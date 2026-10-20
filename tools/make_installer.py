@@ -16,6 +16,11 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.37', '2026-10-21',
+     ['修好停止后的底噪：镲（PERC）的包络在很小时停止衰减，噪声一直低低地响（播放时也垫在下面）；底鼓的“咔哒”和 909 的闪避也有同样的问题',
+      '回声和混响的反馈回路改成向零取整：尾巴会真正衰减到 0，不再留下一点直流'],
+     ['Fixed the hiss after stop: the hat (PERC) envelope stalled once its decay step rounded to 0 (also under the music); the kick click and the 909 duck had the same flaw',
+      'The delay and reverb loops round toward zero: their tails end at 0, with no DC left']),
     ('0.36', '2026-10-20',
      ['MIDI（USB）：按三下 GLO 进 MIDI 页。CLOCK：OUT = 发时钟和开始 / 停止，IN = 跟外部时钟走；NOTES OUT 打开后把音符发出去',
       '通道：ACID = ACID CH，BIO = 下一个通道，第 3 轨（909 用通用鼓号）和 PERC = 10 通道'],

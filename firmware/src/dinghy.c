@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.36"
+#define APP_VER "0.37"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -589,6 +589,7 @@ enum { PF_LP = 1, PF_HP = 2, PF_CRUSH = 4 };
 static const uint16_t RV_LEN[6] = {1116, 1188, 1277, 1356, 556, 441};
 static int16_t rvBuf[1116 + 1188 + 1277 + 1356 + 556 + 441] __attribute__((section(".pool")));
 static struct { uint16_t idx[6], off[6]; int32_t lp[4]; uint8_t ready; } RV;
+static inline int32_t rz(int32_t x, int n) { return (x + ((x >> 31) & ((1 << n) - 1))) >> n; }   /* >> n rounding toward 0: feedback loops decay to 0, not to -1 */
 static inline int32_t clip16(int32_t x) { return x > 32767 ? 32767 : x < -32767 ? -32767 : x; }   /* a feedback path: gain 1 */
 static int32_t reverb(int32_t in)
 {
@@ -597,16 +598,16 @@ static int32_t reverb(int32_t in)
     for (c = 0; c < 4; c++) {
         int16_t *b = rvBuf + RV.off[c];
         int32_t y = b[RV.idx[c]];
-        RV.lp[c] += ((y - RV.lp[c]) * 19660) >> 15;                         /* damping: the highs die first */
-        b[RV.idx[c]] = (int16_t)clip16(in + ((RV.lp[c] * 29040) >> 15));        /* g 0.886: about 1.6 s */
+        RV.lp[c] += rz((y - RV.lp[c]) * 19660, 15);                         /* damping: the highs die first */
+        b[RV.idx[c]] = (int16_t)clip16(in + rz(RV.lp[c] * 29040, 15));        /* g 0.886: about 1.6 s */
         if (++RV.idx[c] >= RV_LEN[c]) RV.idx[c] = 0;
         acc += y;
     }
-    acc >>= 2;
+    acc = rz(acc, 2);
     for (c = 4; c < 6; c++) {
         int16_t *b = rvBuf + RV.off[c];
         int32_t y = b[RV.idx[c]], o = y - acc;
-        b[RV.idx[c]] = (int16_t)clip16(acc + (y >> 1));
+        b[RV.idx[c]] = (int16_t)clip16(acc + rz(y, 1));
         if (++RV.idx[c] >= RV_LEN[c]) RV.idx[c] = 0;
         acc = o;
     }
@@ -754,7 +755,7 @@ static void control(void)
     E.kAmpT = (P.mutes & 4u) ? 0 : (oK.amp * P.kLvl) >> 7;
     if (oK.on && oK.kt < 1200u) E.kClk = P.kClick * 200;
     E.kDrv = 12 + (P.kDrive >> 2);
-    if (P.kit) duckEnv -= duckEnv >> 8;                     /* ~90 ms */
+    if (P.kit && duckEnv > 0) duckEnv -= (duckEnv >> 8) + 1;                     /* ~90 ms */
     E.duck = 32767 - ((((P.mutes & 4u) ? 0 : P.kit ? duckEnv : oK.amp) * P.kDuck) >> 7);
     E.aInc = inc_q8(oA.y);
     E.aAmpT = (!oA.gate || (P.mutes & 1u)) ? 0 : (((oA.acc ? 24000 + P.aAcc * 60 : 24000) * P.aLvl) >> 7);
@@ -874,7 +875,7 @@ static void app_audio(int32_t *out, uint32_t n)
             int32_t sine = SINT[E.kPh >> 22], saw = (int32_t)(E.kPh >> 16) - 32768, v;
             E.kLp += ((saw - E.kLp) * 9000) >> 15;
             v = (sine * (127 - P.kTone) + E.kLp * P.kTone) >> 7;
-            if (E.kClk > 20) { v += (noise() * E.kClk) >> 15; E.kClk -= E.kClk >> 7; }
+            if (E.kClk > 20) { v += (noise() * E.kClk) >> 15; E.kClk -= (E.kClk >> 7) + 1; }
             mix += (sat((v * E.kDrv) >> 4) * E.kAmp) >> 15;
         }
         /* T1 ACID: a wave and a sub -> a 4-pole ladder (the 303's kind of filter: 24 dB an octave, the resonance fed back
@@ -920,7 +921,7 @@ static void app_audio(int32_t *out, uint32_t n)
                 int32_t nx = noise(), dlt = E.hy + nx - E.hx;
                 E.hy = ((E.hA >> 1) * dlt) >> 14; E.hx = nx;
                 mix += (((E.hy * E.hEnv) >> 15) * P.hLvl * 41) >> 14;
-                E.hEnv -= (E.hEnv * E.hDk) >> 14;
+                E.hEnv -= ((E.hEnv * E.hDk) >> 14) + 1;   /* + 1: without it the decay stalls once the step rounds to 0 (a hiss forever) */
             }
         } else if (P.hType == 1 && E.cT >= 0) {     /* cricket: 2..5 pulses at 23 Hz */
             uint32_t np = E.cPulse + 2240019u, pf;
@@ -954,12 +955,12 @@ static void app_audio(int32_t *out, uint32_t n)
         /* the delay, as in the acid film: ACID and BIO only (the drums stay dry), dotted eighth by default; the
          * echoes go left, right, left..., each one through a low-pass, so each is darker and further away */
         dl = dbufL[(E.didx - E.dlen) & DMASK]; dr = dbufR[(E.didx - E.dlen) & DMASK];
-        E.dlp += ((dr - E.dlp) * E.dk) >> 15;
-        dbufL[E.didx] = (int16_t)clip16(((wet * P.dMix) >> 8) + ((E.dlp * P.dFb) >> 7));   /* not sat(): it has gain 1.5 */
-        dbufR[E.didx] = (int16_t)((dl * 29) >> 5);
+        E.dlp += rz((dr - E.dlp) * E.dk, 15);
+        dbufL[E.didx] = (int16_t)clip16(rz(wet * P.dMix, 8) + rz(E.dlp * P.dFb, 7));   /* not sat(): it has gain 1.5 */
+        dbufR[E.didx] = (int16_t)rz(dl * 29, 5);
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
-        if (P.rMix) rv = (reverb((wet >> 3) + ((dl + dr) >> 3)) * P.rMix) >> 7;   /* the acid, the animal and their echoes */
+        if (P.rMix) rv = rz(reverb(rz(wet, 3) + rz(dl + dr, 3)) * P.rMix, 7);   /* the acid, the animal and their echoes */
         l = sat((mix + ((dl * 13) >> 4) + rv) * md); r = sat((mix + ((dr * 13) >> 4) + rv) * md);
         /* punch-ins (FX held + a key): the whole mix */
         if (!X.frozen) { capL[X.ci] = (int16_t)l; capR[X.ci] = (int16_t)r; }
