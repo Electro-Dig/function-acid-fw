@@ -1,0 +1,16 @@
+# FN ACID 0.36 host test: GLO page 3 MIDI: CLOCK OUT, NOTES ON; FILM + 909; play 4 s
+100 hold 8
+300 keys 0x10000
+400 keys 0
+500 release 8
+600 btn 7
+700 btn 7
+800 btn 7
+900 enc 2 1
+1000 enc 3 1
+1100 enc 1 2
+1200 btn 6
+1300 enc 2 1
+1500 btn 12
+5500 btn 12
+6000 end

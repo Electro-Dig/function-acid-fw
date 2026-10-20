@@ -16,6 +16,11 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.36', '2026-10-20',
+     ['MIDI（USB）：按三下 GLO 进 MIDI 页。CLOCK：OUT = 发时钟和开始 / 停止，IN = 跟外部时钟走；NOTES OUT 打开后把音符发出去',
+      '通道：ACID = ACID CH，BIO = 下一个通道，第 3 轨（909 用通用鼓号）和 PERC = 10 通道'],
+     ['USB-MIDI: GLO three times = MIDI. CLOCK OUT sends clock and start / stop, IN follows an external clock; NOTES OUT sends the notes',
+      'Channels: ACID on ACID CH, BIO on the next, track 3 (909 as GM drum notes) and PERC on 10']),
     ('0.35', '2026-10-20',
      ['909 鼓机（来自 X0X）：EDIT 选第 3 轨，KIT 选 909；再按 SEQ = 鼓的编辑页，11 个鼓一行一行排开',
       '鼓页：黑键选哪一行（并试听），白键是 16 步（点一下开，再点重音，再点关），KNOB1–4 = 这一行的音高 / 衰减 / 音量 / 另一项',
