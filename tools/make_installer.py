@@ -16,6 +16,9 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.48', '2026-10-24',
+     ['KEYS 的 PAD（DEEP 的和弦垫）和 DRONE（RAGA 的坦普拉）省算：波形预先做成表，每个采样只查两次表（以前要算 5 次正弦），相位改用整数，并且每两个采样算一次、中间插值。在 0.47 的分项里 KEYS 占了 38%，这一版应该降到一个零头。声音和以前一样（电脑上对比 DEEP、RAGA 的音量和高频）'],
+     ['KEYS PAD (the DEEP pads) and DRONE (the RAGA tanpura) cost far less: the pad wave is a table (two lookups a sample instead of five sines), integer phases, and both run every other sample with interpolation. In 0.47 KEYS was 38% of the block; it should now be a fraction. The sound is as before (DEEP and RAGA compared on the computer: level and highs)']),
     ('0.47', '2026-10-24',
      ['测负载用的诊断版：GLO 第 1 页右边显示声音各部分占多少（鼓 / CONTROL / KEYS / 回声+混响 / 其余声部）',
       '同一页拧 CPU 那一格的旋钮：SCREEN FULL / LITE / OFF，看画面对声音负载的影响（只是试验，不存）',

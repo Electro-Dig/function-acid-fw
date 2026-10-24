@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.47"
+#define APP_VER "0.48"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -982,6 +982,7 @@ typedef struct {
     uint32_t wait, age;                              /* samples before it starts (a strum); samples sounding */
     uint16_t len, pos, fill; float ksLp, ksFb;   /* fill: how much of the string has its noise yet */
     uint8_t on, gate, note, type, from, midi;        /* from: 0 the steps, 1 a key, 2 a song's pad, 3 a song's tanpura */
+    uint32_t q0, q1, qi, qi1; uint8_t wt; float last; /* 0.48, PAD / DRONE: integer phases, its table, the held sample */
 } kv_t;
 static kv_t KV[KV_N];
 static uint8_t kvAny;                                /* a voice was on last sample (kv_start sets it) */
@@ -989,11 +990,17 @@ static int16_t ksBuf[KV_N][KS_LEN];
 static float SINF[1025];
 static uint32_t kvNz = 0x1234567u, kvArp;
 static volatile uint16_t kvQ[16]; static volatile uint32_t kvQw, kvQr;   /* the keys of T4 (main loop -> sound) */
-static void sinf_init(void)                          /* sin(2 pi i / 1024) by rotation (no libm) */
+static float PADT[8][257];                           /* 0.48: the pad's cycle (1, 2, 3, 4 x the note) at 8 brightnesses */
+static void sinf_init(void)                          /* sin(2 pi i / 1024) by rotation (no libm); the pad's tables */
 {
     const float a = 6.2831853f / 1024.0f, c = 1.0f - a * a / 2.0f + a * a * a * a / 24.0f, sn = a - a * a * a / 6.0f;
-    float x = 1.0f, y = 0.0f, t; uint32_t i;
+    float x = 1.0f, y = 0.0f, t; uint32_t i, b;
     for (i = 0; i <= 1024u; i++) { SINF[i] = y; t = x * c - y * sn; y = x * sn + y * c; x = t; }
+    for (b = 0; b < 8u; b++)
+        for (i = 0; i <= 256u; i++) {
+            float br = (float)b / 7.0f;
+            PADT[b][i] = SINF[(i * 4u) & 1023u] + 0.18f * SINF[(i * 8u) & 1023u] + br * (0.32f * SINF[(i * 12u) & 1023u] + 0.22f * SINF[(i * 16u) & 1023u]);
+        }
 }
 static inline float fsin(float x)                    /* x in turns */
 {
@@ -1027,14 +1034,16 @@ static void kv_start(uint32_t note, uint32_t type, float g, float bri, uint32_t 
     if (v->midi) mn_off((P.mCh + 2u) & 15u, v->note);
     memset(v, 0, sizeof *v);
     f = 440.0f * f_exp2(((float)(int32_t)note - 69.0f) / 12.0f);
-    v->inc = f / 44100.0f; v->note = (uint8_t)note; v->type = (uint8_t)type; v->g = g; v->bri = bri; v->wait = wait; v->from = (uint8_t)from;
+    v->inc = f / 44100.0f; v->qi = (uint32_t)(f * 97391.55f); v->qi1 = (uint32_t)(f * 1.003f * 97391.55f); v->note = (uint8_t)note; v->type = (uint8_t)type; v->g = g; v->bri = bri; v->wait = wait; v->from = (uint8_t)from;
     v->gate = 1; v->on = 1; v->env = 0.0f; kvAny = 1;
     {
         float dec = 0.4f + (float)P.hDec * (from >= 2u ? 0.0f : 0.045f);      /* DECAY: ~0.4 .. 6 s */
         switch (type) {
-        case KT_PAD: v->atk = 1.0f / (0.35f * 44100.0f); v->dk = 1.0f; v->rel = tau_k(0.15f + dec * 0.12f); break;
-        case KT_DRONE: v->atk = 1.0f / (0.01f * 44100.0f); v->dk = tau_k(from == 3u ? 1.8f : 1.0f + dec); v->rel = tau_k(from == 3u ? 0.05f : 1.5f);
-            v->sw[0] = v->sw[1] = v->sw[2] = v->sw[3] = 1.0f; break;
+        case KT_PAD: v->atk = 2.0f / (0.35f * 44100.0f); v->dk = 1.0f; v->rel = tau_k(0.15f + dec * 0.12f); v->rel *= v->rel;   /* (rates for every other sample) */
+            v->wt = (uint8_t)(bri * 7.0f + 0.5f > 7.0f ? 7 : bri * 7.0f + 0.5f); v->q1 = 0x28F5C28Fu; break;
+        case KT_DRONE: v->atk = 2.0f / (0.01f * 44100.0f); v->dk = tau_k(from == 3u ? 1.8f : 1.0f + dec); v->rel = tau_k(from == 3u ? 0.05f : 1.5f);
+            v->dk *= v->dk; v->rel *= v->rel;
+            { uint32_t n; for (n = 0; n < 4u; n++) v->sw[n] = (0.6f + 0.4f * fsin((float)(n + 4u) * 0.16f)) / (float)(n + 4u); } break;
         case KT_EPIANO: v->atk = 1.0f / 90.0f; v->dk = tau_k(0.6f + dec * 0.6f); v->rel = tau_k(0.15f); v->mi = 1.0f + 2.2f * bri; v->mdk = tau_k(0.3f); v->t2 = 1.0f; break;
         case KT_BELL: v->atk = 1.0f / 40.0f; v->dk = tau_k(1.0f + dec); v->rel = tau_k(0.8f); v->mi = 1.5f + 4.0f * bri; v->mdk = tau_k(0.9f); break;
         case KT_PIANO: v->atk = 1.0f / 60.0f; v->dk = tau_k((0.5f + dec * 0.5f) * (f < 200.0f ? 1.3f : f > 800.0f ? 0.6f : 1.0f)); v->rel = tau_k(0.12f);
@@ -1084,9 +1093,11 @@ static void kv_keys(void)                            /* T4's keys (queued by the
 }
 static inline float kv_run(float duck)              /* one sample of all eight */
 {
-    uint32_t k; float out = 0.0f;
+    static uint32_t tick;
+    uint32_t k, half = tick++ & 1u; float out = 0.0f, gPad, gTp;
     if (!kvAny) return 0.0f;
     kvAny = 0;
+    gPad = SG.padLvl * (1.0f - 0.75f * SG.padPump * duck); gTp = SG.tpLvl;
     for (k = 0; k < KV_N; k++) {
         kv_t *v = &KV[k]; float x;
         if (!v->on) continue;
@@ -1110,35 +1121,49 @@ static inline float kv_run(float duck)              /* one sample of all eight *
             out += x * v->g * 1.4f;
             continue;
         }
+        if (v->type == KT_PAD || v->type == KT_DRONE) {   /* 0.48: smooth and low, so every other sample (and hold), from tables */
+            if (half) { out += v->last; continue; }
+            if (v->gate && v->atk < 1.0f) { v->env += v->atk; if (v->env >= 1.0f) { v->env = 1.0f; v->atk = 1.0f; } }
+            else if (v->gate) v->env *= v->dk;
+            else v->env *= v->rel;
+            if (v->env < 0.001f && (!v->gate || v->atk >= 1.0f) && (!v->gate || v->type != KT_PAD)) { v->on = 0; v->last = 0.0f; continue; }
+            if (v->type == KT_PAD) {
+                uint32_t i0 = v->q0 >> 24, j = v->q1 >> 22;
+                const float *w = PADT[v->wt];
+                float fa = (float)(v->q0 & 0xFFFFFFu) * (1.0f / 16777216.0f), fb = (float)((v->q1 >> 6) & 0xFFFFu) * (1.0f / 65536.0f);
+                x = w[i0] + (w[i0 + 1u] - w[i0]) * fa + 0.5f * (SINF[j] + (SINF[j + 1u] - SINF[j]) * fb);
+                x *= 0.5f;
+                v->q0 += v->qi << 1; v->q1 += v->qi1 << 1;
+            } else {                                     /* DRONE: 7 harmonics, 1/h, the high ones swaying: sin(h x) by recurrence */
+                uint32_t j = v->q0 >> 22, jc = (v->q0 + 0x40000000u) >> 22;
+                float fr = (float)((v->q0 >> 6) & 0xFFFFu) * (1.0f / 65536.0f), s1 = SINF[j] + (SINF[j + 1u] - SINF[j]) * fr,
+                      c2 = 2.0f * (SINF[jc] + (SINF[jc + 1u] - SINF[jc]) * fr), a = 0.0f, b = s1, t;
+                if ((v->age & 63u) < 2u) {                    /* the sway, every 64 samples (one of the two is a computed sample) */
+                    uint32_t n;
+                    v->p1 += 64.0f * 0.9f / 44100.0f; if (v->p1 >= 1.0f) v->p1 -= 1.0f;
+                    for (n = 0; n < 4u; n++) v->sw[n] = (0.6f + 0.4f * fsin(v->p1 + (float)(n + 4u) * 0.16f)) / (float)(n + 4u);
+                }
+                x = b;
+                t = c2 * b - a; a = b; b = t; x += b * 0.5f;
+                t = c2 * b - a; a = b; b = t; x += b * (1.0f / 3.0f);
+                t = c2 * b - a; a = b; b = t; x += b * v->sw[0];
+                t = c2 * b - a; a = b; b = t; x += b * v->sw[1];
+                t = c2 * b - a; a = b; b = t; x += b * v->sw[2];
+                t = c2 * b - a; a = b; b = t; x += b * v->sw[3];
+                x *= 0.45f;
+                v->q0 += v->qi << 1;
+            }
+            x *= v->env * v->g * (v->from == 2u ? gPad : v->from == 3u ? gTp : 1.0f);
+            out += 0.5f * (v->last + x);                 /* between the last one and this one (a hold would leave images near 20 kHz) */
+            v->last = x;
+            continue;
+        }
         if (v->gate && v->atk < 1.0f) { v->env += v->atk; if (v->env >= 1.0f) { v->env = 1.0f; v->atk = 1.0f; } }   /* the attack */
         else if (v->gate) { v->env *= v->dk; v->atk = 1.0f; }
         else v->env *= v->rel;
         if (v->env < 0.001f && (!v->gate || v->atk >= 1.0f)) { if (!v->gate || v->type != KT_PAD) { v->on = 0; continue; } }
         v->p0 += v->inc; if (v->p0 >= 1.0f) v->p0 -= 1.0f;
         switch (v->type) {
-        case KT_PAD:
-            v->p1 += v->inc * 1.003f; if (v->p1 >= 1.0f) v->p1 -= 1.0f;
-            v->p2 += v->inc * 4.004f; if (v->p2 >= 1.0f) v->p2 -= 1.0f;
-            x = fsin(v->p0) + 0.5f * fsin(v->p1 + 0.16f) + 0.18f * fsin(2.0f * v->p0) + v->bri * (0.32f * fsin(3.0f * v->p0) + 0.22f * fsin(v->p2));
-            x *= 0.5f;
-            break;
-        case KT_DRONE: {                             /* 7 harmonics, 1/h, the high ones swaying: sin(h x) by recurrence from sin x, cos x */
-            float s1 = fsin(v->p0), c2 = 2.0f * fsin(v->p0 + 0.25f), a = 0.0f, b = s1, t;
-            if ((v->age & 63u) == 1u) {                  /* the sway, every 64 samples */
-                uint32_t n;
-                v->p1 += 64.0f * 0.9f / 44100.0f; if (v->p1 >= 1.0f) v->p1 -= 1.0f;
-                for (n = 0; n < 4u; n++) v->sw[n] = (0.6f + 0.4f * fsin(v->p1 + (float)(n + 4u) * 0.16f)) / (float)(n + 4u);
-            }
-            x = b;                                       /* h = 1 */
-            t = c2 * b - a; a = b; b = t; x += b * 0.5f;          /* 2 */
-            t = c2 * b - a; a = b; b = t; x += b * (1.0f / 3.0f); /* 3 */
-            t = c2 * b - a; a = b; b = t; x += b * v->sw[0];      /* 4..7 */
-            t = c2 * b - a; a = b; b = t; x += b * v->sw[1];
-            t = c2 * b - a; a = b; b = t; x += b * v->sw[2];
-            t = c2 * b - a; a = b; b = t; x += b * v->sw[3];
-            x *= 0.45f;
-            break;
-        }
         case KT_EPIANO:
             v->mi *= v->mdk; v->t2 *= 0.9984f;
             x = fsin(v->p0 + 0.16f * v->mi * fsin(v->p0)) + 0.12f * v->t2 * fsin(14.0f * v->p0);
@@ -1153,7 +1178,7 @@ static inline float kv_run(float duck)              /* one sample of all eight *
             x = fsin(v->p0 + 0.16f * v->mi * fsin(v->p0)) + 0.3f * fsin(2.003f * v->p0) * v->t2 + 0.08f * v->t2 * v->t2 * kv_noise();
             x *= 0.5f;
         }
-        out += x * v->env * v->g * (v->from == 2u ? SG.padLvl * (1.0f - 0.75f * SG.padPump * duck) : v->from == 3u ? SG.tpLvl : 1.0f);
+        out += x * v->env * v->g * (v->from == 2u ? gPad : v->from == 3u ? gTp : 1.0f);
     }
     return out;
 }
