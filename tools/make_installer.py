@@ -16,6 +16,11 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.45', '2026-10-24',
+     ['AUDIO CPU 改成两个数：平均 / 最近 2 秒最差的一块（之前只显示开机以来最差的一块，永远不归零，所以开机那一下就把它钉在高位）',
+      '去掉几处一下子算很多的地方：909 的表在开机时做好（之前在第一块声音里做）；KEYS 的 PLUCK / GUITAR 起音时边弹边填琴弦（之前一下填满，扫弦一次 4 根）；换曲子 / 换鼓组时旋钮分几块设完（之前 11 行一次设完）'],
+     ['AUDIO CPU shows two numbers: the average / the worst block of the last 2 s (it showed the worst block since power-on, never reset, so the boot pinned it high)',
+      'Fewer slow blocks: the 909 tables are made at boot (they were made in the first audio block); PLUCK / GUITAR fill the string as it plays (it was filled at once, four strings for a strum); a song or a kit change sets the drum knobs over a few blocks (all 11 rows at once before)']),
     ('0.44', '2026-10-24',
      ['新界面：换成 Acid 视频的视觉。暖白底、一种墨线，每条轨一个颜色（ACID 玫红、ZOO 青绿、鼓 钴蓝、KEYS 墨蓝）',
       '上面是四个圆旋钮，读数直接写在下面（CUTOFF 显示 Hz）；正在拧的那个变红',

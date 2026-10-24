@@ -8,7 +8,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FN ACID · 函数 Acid 固件安装</title>
-<meta name="description" content="FN ACID 0.44：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="description" content="FN ACID 0.45：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
 <meta name="theme-color" content="#c4e45a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22/%3E%3C/svg%3E">
 <style>
@@ -149,7 +149,7 @@ footer p{margin:0 0 8px}
   <section class="hero">
     <div>
       <h1><span class="fn">FN</span> ACID</h1>
-      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.44 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.44 test</span></p>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.45 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.45 test</span></p>
       <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
       <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
       <ul class="chips">
@@ -185,12 +185,12 @@ footer p{margin:0 0 8px}
         <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
       </div>
       <div class="card go-box">
-        <div class="ver"><span class="pill">FN ACID 0.44</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <div class="ver"><span class="pill">FN ACID 0.45</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
         <button id="go" disabled data-t="install"></button>
         <progress id="bar" max="100" value="0"></progress>
         <p id="status" role="status" aria-live="polite"></p>
         <pre id="log" class="lcd"></pre>
-        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 11656a288fa4f1db909e6475639d09239b3ae745a60bb571d844453184cbea37</p>
+        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 386a755b433f53c0cdacf42cbe5fc879154c9471414e31601dfdfb8ecc09544b</p>
         <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
         <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
       </div>
@@ -201,7 +201,8 @@ footer p{margin:0 0 8px}
     <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
     <div class="card">
       <ul class="log-list">
-        <li class="now"><div class="v">0.44<small>2026-10-24</small></div><div><ul data-l="zh"><li>新界面：换成 Acid 视频的视觉。暖白底、一种墨线，每条轨一个颜色（ACID 玫红、ZOO 青绿、鼓 钴蓝、KEYS 墨蓝）</li><li>上面是四个圆旋钮，读数直接写在下面（CUTOFF 显示 Hz）；正在拧的那个变红</li><li>中间是当前轨的转盘：一圈 16 步，指针扫过当前这一步，音越高点越往外，重音点更大，连音 / 滑音 / 按住的和弦是一段弧。切轨道，转盘就换成那条轨。鼓是三圈：里圈底鼓，中圈军鼓 / 拍手 / 通鼓，外圈镲</li><li>右边是这条轨的声音：上面波形（ACID 是按当前 CUTOFF / RESO 算出来的 303 波形，ZOO 是叫声的音高和嘴型），下面是谐波和滤波曲线</li><li>去掉了下面四排轨道条；右下四个小色块表示选的是哪条轨、哪条静音了。放曲子时底部是一条段落带</li></ul><ul data-l="en"><li>A new screen in the look of the Acid films: warm paper, one ink, a colour per track (ACID rose, ZOO teal, drums cobalt, KEYS ink blue)</li><li>Four round knobs on top with their values under them (CUTOFF in Hz); the one being turned goes red</li><li>In the middle, the selected track as a ring: 16 steps round, the pointer sweeping, higher notes further out, accents bigger, ties / slides / held chords as arcs. Change track and the ring changes. Drums: three rings, kick in, snares, hats out</li><li>Right of it, the sound of the track: its wave (ACID: a 303 wave computed from the CUTOFF and RESO now; ZOO: the pitch and mouth of the call) over its harmonics and the filter curve</li><li>The four track rows are gone; four small chips show the selected and the muted tracks. A song shows its sections along the bottom</li></ul></div></li>
+        <li class="now"><div class="v">0.45<small>2026-10-24</small></div><div><ul data-l="zh"><li>AUDIO CPU 改成两个数：平均 / 最近 2 秒最差的一块（之前只显示开机以来最差的一块，永远不归零，所以开机那一下就把它钉在高位）</li><li>去掉几处一下子算很多的地方：909 的表在开机时做好（之前在第一块声音里做）；KEYS 的 PLUCK / GUITAR 起音时边弹边填琴弦（之前一下填满，扫弦一次 4 根）；换曲子 / 换鼓组时旋钮分几块设完（之前 11 行一次设完）</li></ul><ul data-l="en"><li>AUDIO CPU shows two numbers: the average / the worst block of the last 2 s (it showed the worst block since power-on, never reset, so the boot pinned it high)</li><li>Fewer slow blocks: the 909 tables are made at boot (they were made in the first audio block); PLUCK / GUITAR fill the string as it plays (it was filled at once, four strings for a strum); a song or a kit change sets the drum knobs over a few blocks (all 11 rows at once before)</li></ul></div></li>
+        <li><div class="v">0.44<small>2026-10-24</small></div><div><ul data-l="zh"><li>新界面：换成 Acid 视频的视觉。暖白底、一种墨线，每条轨一个颜色（ACID 玫红、ZOO 青绿、鼓 钴蓝、KEYS 墨蓝）</li><li>上面是四个圆旋钮，读数直接写在下面（CUTOFF 显示 Hz）；正在拧的那个变红</li><li>中间是当前轨的转盘：一圈 16 步，指针扫过当前这一步，音越高点越往外，重音点更大，连音 / 滑音 / 按住的和弦是一段弧。切轨道，转盘就换成那条轨。鼓是三圈：里圈底鼓，中圈军鼓 / 拍手 / 通鼓，外圈镲</li><li>右边是这条轨的声音：上面波形（ACID 是按当前 CUTOFF / RESO 算出来的 303 波形，ZOO 是叫声的音高和嘴型），下面是谐波和滤波曲线</li><li>去掉了下面四排轨道条；右下四个小色块表示选的是哪条轨、哪条静音了。放曲子时底部是一条段落带</li></ul><ul data-l="en"><li>A new screen in the look of the Acid films: warm paper, one ink, a colour per track (ACID rose, ZOO teal, drums cobalt, KEYS ink blue)</li><li>Four round knobs on top with their values under them (CUTOFF in Hz); the one being turned goes red</li><li>In the middle, the selected track as a ring: 16 steps round, the pointer sweeping, higher notes further out, accents bigger, ties / slides / held chords as arcs. Change track and the ring changes. Drums: three rings, kick in, snares, hats out</li><li>Right of it, the sound of the track: its wave (ACID: a 303 wave computed from the CUTOFF and RESO now; ZOO: the pitch and mouth of the call) over its harmonics and the filter curve</li><li>The four track rows are gone; four small chips show the selected and the muted tracks. A song shows its sections along the bottom</li></ul></div></li>
         <li><div class="v">0.43<small>2026-10-24</small></div><div><ul data-l="zh"><li>修 REC + 白键 1（CLR）在第 2 轨 ZOO、第 4 轨 KEYS 上好像清不掉：这两条轨没有音符时会自己弹（ZOO 按自己的节拍叫，KEYS 按 RHYTHM 弹和弦），清完立刻又自己弹起来。现在清完这条轨就安静；要它自己弹，拧 PRESETS 选个预设或弹一下琴键。REC + 白键 2（ALL）也一样</li></ul><ul data-l="en"><li>Fixed REC + white key 1 (CLR) seeming not to clear T2 ZOO or T4 KEYS: with no notes they play on their own (ZOO calls on its clock, KEYS plays its RHYTHM), so they started again at once. Cleared, the track is now quiet; a preset or a key wakes it. The same for REC + white key 2 (ALL)</li></ul></div></li>
         <li><div class="v">0.42<small>2026-10-24</small></div><div><ul data-l="zh"><li>修 RAGA 鼓进来后刺耳：808 整套原来被放大到 909 的 4 倍（按底鼓对齐的），镲和军鼓的响弦太冲。现在 808 每一行单独对齐到 909 同一行的音量；RAGA 的软鼓再把军鼓响弦和镲压低</li><li>坦普拉减负：照原曲最多 4 根弦、每根 4 秒；泛音改用递推算。RAGA 在电脑上的计算量降了一半（之前很可能让机器算不过来，出现杂音）</li></ul><ul data-l="en"><li>Fixed RAGA turning harsh when the drums come in: the whole 808 was 4x the 909 (matched on the kick), so its hats and snare rattle were far too loud. Each 808 row now matches the 909 row; the RAGA soft kit takes the snare rattle and the cymbals further down</li><li>The tanpura is lighter: four strings at most, 4 s each (as the web song), its harmonics by recurrence. RAGA costs half as much to compute (before, the FM-1 may not have kept up: crackles)</li></ul></div></li>
         <li><div class="v">0.41<small>2026-10-24</small></div><div><ul data-l="zh"><li>第 2 轨改成 ZOO：第二台 303，也会学动物叫。VOICE：ACID B（正常的 303，和 ACID 对着弹），MEOW / MEW / MOO / QUACK / WOOF / MEOW LONG（用 303 自己的方式叫：音高靠步 + 滑音，CUTOFF 是嘴），还有原来的苍蝇、蜜蜂、青蛙、鲸。CUTOFF 让嘴变大变小。放曲子时，曲子里的第二台 303 也由它来发声</li><li>第 3 轨多了 808（KIT：FUNC / 909 / 808）。同样是 11 行格子，最后两行是 CY（镲）和 CB（牛铃）；LT MT HT 的第 4 个旋钮切 TOM / CONGA，RS 切 RIM / CLAVE，CP 切 CLAP / MARACAS</li><li>第 4 轨改成 KEYS：能弹和弦的音色，PAD / PLUCK / GUITAR / E.PIANO / BELL / PIANO / DRONE。按 ARP 层选的和弦，节奏 HOLD / HALF / BEATS / OFFBEAT / 3-3-2 / ARP；选到第 4 轨弹琴键就是直接弹它，可以同时按几个键</li><li>曲目全部 8 首：DEEP（和弦垫在 KEYS 上）、RAGA（坦普拉在 KEYS 上，808 当软鼓）加进来了</li><li>学猫叫实验合进来：按住 FX + 黑键 = ACID 叫一声；HOME + 黑键 1 = MEOW 旋律</li><li>新设置：鼓默认 909，ZOO 和 KEYS 默认关着（选到那一轨弹一下琴键就打开）。旧存档里的 BIO 动物和 PERC 会换成新轨的对应音色</li></ul><ul data-l="en"><li>T2 is ZOO: a second 303 that also does animals. VOICE: ACID B (a plain 303 to answer ACID), MEOW / MEW / MOO / QUACK / WOOF / MEOW LONG (in the 303 way: steps and slides for the pitch, CUTOFF as the mouth), and the old fly, bee, frog, whale. The second 303 of a song now plays on it</li><li>T3 has the 808 too (KIT: FUNC / 909 / 808): the same 11-row grid, the last two rows CY and CB; KNOB4 switches LT MT HT tom / conga, RS rim / clave, CP clap / maracas</li><li>T4 is KEYS: chords. PAD / PLUCK / GUITAR / E.PIANO / BELL / PIANO / DRONE, on the ARP chord, rhythms HOLD / HALF / BEATS / OFFBEAT / 3-3-2 / ARP; with T4 selected the keys play it, several at once</li><li>All eight songs: DEEP (its pads on KEYS) and RAGA (its tanpura on KEYS, the 808 as its soft kit)</li><li>The acid-cat test is in: FX held + black keys = ACID calls; HOME + black key 1 = the MEOW line</li><li>A new set: the 909 by default, ZOO and KEYS off until a key on that track. Old saves: the BIO animals and PERC turn into the sounds of the new tracks</li></ul></div></li>
@@ -569,7 +570,7 @@ const TEXT = {
  "zh": {
   "intro": "用 USB 把 FM-1 直接接到电脑上（Chrome 或 Edge）。",
   "warn": "写入时不要拔 USB 线。",
-  "install": "安装 FN ACID 0.44",
+  "install": "安装 FN ACID 0.45",
   "other": "English",
   "editor": "编辑器",
   "edOffline": "下载编辑器",
@@ -614,7 +615,7 @@ const TEXT = {
  "en": {
   "intro": "Connect the FM-1 straight to the computer by USB (Chrome or Edge).",
   "warn": "Do not unplug the USB cable while writing.",
-  "install": "Install FN ACID 0.44",
+  "install": "Install FN ACID 0.45",
   "other": "中文",
   "editor": "Editor",
   "edOffline": "Download the editor",
@@ -688,7 +689,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.44 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "11656a288fa4f1db909e6475639d09239b3ae745a60bb571d844453184cbea37"};
+const meta = {"version": "0.45 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "386a755b433f53c0cdacf42cbe5fc879154c9471414e31601dfdfb8ecc09544b"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {

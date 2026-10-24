@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.44"
+#define APP_VER "0.45"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -980,7 +980,7 @@ enum { KT_PAD, KT_PLUCK, KT_GUITAR, KT_EPIANO, KT_BELL, KT_PIANO, KT_DRONE };
 typedef struct {
     float p0, p1, p2, inc, env, atk, dk, rel, mi, mdk, t2, g, bri, sw[4];
     uint32_t wait, age;                              /* samples before it starts (a strum); samples sounding */
-    uint16_t len, pos; float ksLp, ksFb;
+    uint16_t len, pos, fill; float ksLp, ksFb;   /* fill: how much of the string has its noise yet */
     uint8_t on, gate, note, type, from, midi;        /* from: 0 the steps, 1 a key, 2 a song's pad, 3 a song's tanpura */
 } kv_t;
 static kv_t KV[KV_N];
@@ -1045,12 +1045,7 @@ static void kv_start(uint32_t note, uint32_t type, float g, float bri, uint32_t 
             v->len = (uint16_t)L; v->pos = 0; v->atk = 1.0f; v->env = 1.0f; v->dk = 1.0f; v->rel = 1.0f;
             v->ksFb = 1.0f - 1.0f / ((0.25f + dec * (type == KT_GUITAR ? 0.6f : 0.25f)) * f);   /* the loss per trip: a decay in seconds */
             if (v->ksFb < 0.9f) v->ksFb = 0.9f;
-            for (i = 0; i < L; i++) {
-                float x = kv_noise();
-                if (type == KT_GUITAR && i >= L / 5u) x -= 0.6f * (float)ksBuf[best][i - L / 5u] * (1.0f / 16000.0f);   /* picked a fifth of the way along */
-                lp += c * (x - lp); ksBuf[best][i] = (int16_t)(lp * 16000.0f);
-            }
-            v->ksLp = 0.0f;
+            v->ksLp = 0.0f; v->fill = 0; (void)i; (void)lp; (void)c;   /* the noise goes in as the string first goes round (kv_run) */
         }
         }
     }
@@ -1097,6 +1092,12 @@ static inline float kv_run(float duck)              /* one sample of all eight *
         if (v->from == 3u && v->age > 4u * 44100u) v->gate = 0;          /* the tanpura's string: 4 s, then let go fast */
         if (v->type == KT_PLUCK || v->type == KT_GUITAR) {
             uint32_t a = v->pos, b = a + 1u >= v->len ? 0u : a + 1u;
+            while (v->fill < v->len && v->fill <= a + 1u) {             /* the first time round: the pluck's noise, a little darker with less TONE */
+                uint32_t i = v->fill++, L = v->len;
+                float x = kv_noise();
+                if (v->type == KT_GUITAR && i >= L / 5u) x -= 0.6f * (float)ksBuf[k][i - L / 5u] * (1.0f / 16000.0f);   /* picked a fifth of the way along */
+                v->ksLp += (0.15f + 0.8f * v->bri) * (x - v->ksLp); ksBuf[k][i] = (int16_t)(v->ksLp * 16000.0f);
+            }
             float y = ((float)ksBuf[k][a] + (float)ksBuf[k][b]) * 0.5f * v->ksFb;
             ksBuf[k][a] = (int16_t)y; v->pos = (uint16_t)b;
             x = y * (1.0f / 16000.0f);
@@ -1373,7 +1374,7 @@ static void control(void)
     E.cF = fcq < 30000 ? fcq : 30000;
 }
 
-static volatile uint32_t cpu_us, cpu_max;
+static volatile uint32_t cpu_us, cpu_max, cpu_avg8, cpu_pk;   /* this block; the worst lately; the average (x256); the peak shown */
 #define D8_GAIN 450                                         /* the 808 against the 909 (tuned by ear and RMS) */
 static drum909_t D9;
 static drum808_t D8;
@@ -1394,8 +1395,13 @@ static void dk_render(float *b, uint32_t off, uint32_t n)
 static void drum_apply(void)                                /* between blocks: the knobs, the auditions */
 {
     uint32_t m, v, i;
-    if (!d9ready) { drum909_init(&D9); d9ready = 1; drDirty = 0x7FFu; }
-    m = drDirty; drDirty = 0;
+    if (!d9ready) return;                                   /* (its tables are made at boot, in the main loop) */
+    m = drDirty;
+    {   /* at most three rows a block: a whole kit at once (a song, a kit change) was one slow block */
+        uint32_t take = 0, n = 0;
+        for (v = 0; v < 11u && n < 3u; v++) if (m >> v & 1u) { take |= 1u << v; n++; }
+        drDirty = (uint16_t)(drDirty & ~take); m = take;
+    }
     for (v = 0; v < 11u; v++) if (m >> v & 1u) for (i = 0; i < 4u; i++) {
         if (P.kit == 2u) { if (KN8[v][i] >= 0 && d8ready) drum808_set(&D8, T8[v], KN8[v][i], P.drPot[v][i]); }
         else if (KN9[v][i] >= 0) drum909_set(&D9, (int)v, KN9[v][i], P.drPot[v][i]);
@@ -1632,6 +1638,7 @@ static void app_audio(int32_t *out, uint32_t n)
     }
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
     if (cpu_us > cpu_max) cpu_max = cpu_us;
+    cpu_avg8 += (cpu_us * 256u - cpu_avg8) >> 6;   /* ~0.4 s */
 }
 
 /* ================================================================ the UI (main loop) */
@@ -2498,9 +2505,12 @@ static void draw_top(void)                                   /* 0..70: the page,
         int32_t x0 = (int32_t)i * 60, k = pg->k[i], hot = U.touch == (int8_t)i && fm1_ms - U.touchT < 800u, cx = x0 + 30, cy = 30;
         uint16_t col = i == 0u ? TCOL[U.part & 3u] : KNC[i];
         if (k == PM_NONE && U.group == G_GLO && i == 1u) {          /* GLOBAL: how much of the 5.8 ms the sound takes */
-            s[0] = 0; sint(s, (int32_t)(cpu_max * 100u / 5805u)); scat(s, "%");
-            knob(cx, cy, 13, (int32_t)(cpu_max * 100u / 5805u), 0, 100, cpu_max * 100u / 5805u > 70u ? REDC : KNC[2]);
-            cell_text(x0, "AUDIO CPU", s, fpuIsr > 1u || fpuMain > 1u);
+            {   /* the average (the knob) and the worst block of the last 2 s */
+                uint32_t av = cpu_avg8 * 100u / (5805u * 256u), pk = cpu_pk * 100u / 5805u;
+                s[0] = 0; sint(s, (int32_t)av); scat(s, "/"); sint(s, (int32_t)pk); scat(s, "%");
+                knob(cx, cy, 13, (int32_t)av, 0, 100, av > 60u ? REDC : KNC[2]);
+                cell_text(x0, "CPU AVG/PK", s, fpuIsr > 1u || fpuMain > 1u || pk > 90u);
+            }
             continue;
         }
         if (U.group == G_DRUM) {
@@ -2935,7 +2945,7 @@ static void app_main(void)
         } else defaults();
     }
     if (P.aFilt > 1u) P.aFilt = 0;
-    drum808_init(&D8); d8ready = 1; drDirty = 0x7FFu;
+    drum909_init(&D9); d9ready = 1; drum808_init(&D8); d8ready = 1; drDirty = 0x7FFu;
     sinf_init();              /* 0.41: the 808 (its tables take a moment: before the sound needs it) */
     mot_count();
     count_lanes();
@@ -3032,6 +3042,7 @@ static void app_main(void)
             if (SG.demo) sg_enter((SG.song + 1u) % SG_PLAYABLE, 1);
             else { sg_exit(); toast("THE END: YOUR SET", 0); }
         }
+        { static uint32_t pkT; if (fm1_ms - pkT >= 2000u) { pkT = fm1_ms; cpu_pk = cpu_max; cpu_max = 0; } }
         /* keep the settings when nothing has changed for 20 s and the music is stopped (an erase stalls the sound) */
         if (U.dirty && !E.playing && fm1_ms - U.dirtyT > 20000u) save_all();
         /* SAVE held, a white key held long: say that letting go saves */

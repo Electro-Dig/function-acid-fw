@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifndef APP_NAME
 #define APP_NAME "DINGHY"
@@ -160,6 +161,27 @@ static void write_ppm(uint32_t t)
     printf("%6u ms  screen -> %s\n", t, name);
 }
 
+static uint32_t *prof_t, *prof_ns, prof_n;
+static void prof_add(uint32_t ms, uint32_t ns)
+{
+    prof_t = realloc(prof_t, (prof_n + 1u) * 4u); prof_ns = realloc(prof_ns, (prof_n + 1u) * 4u);
+    prof_t[prof_n] = ms; prof_ns[prof_n++] = ns;
+}
+static int cmpu(const void *a, const void *b) { uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b; return x < y ? -1 : x > y; }
+static void prof_report(void)
+{
+    uint32_t *c, *keep, i, k, j;
+    if (!prof_n) return;
+    keep = malloc(prof_n * 4u); memcpy(keep, prof_ns, prof_n * 4u);
+    c = malloc(prof_n * 4u); memcpy(c, prof_ns, prof_n * 4u); qsort(c, prof_n, 4, cmpu);
+    printf("blocks %u  median %u us  p99 %u us  max %u us\n", prof_n, c[prof_n / 2] / 1000, c[prof_n * 99 / 100] / 1000, c[prof_n - 1] / 1000);
+    for (k = 0; k < 12u; k++) {                 /* the slowest blocks and when */
+        uint32_t best = 0; for (i = 1; i < prof_n; i++) if (prof_ns[i] > prof_ns[best]) best = i;
+        printf("  slow: %6u ms  %u us\n", prof_t[best], prof_ns[best] / 1000);
+        for (j = best > 3 ? best - 3 : 0; j < best + 4 && j < prof_n; j++) prof_ns[j] = 0;
+    }
+    free(c); memcpy(prof_ns, keep, prof_n * 4u); free(keep);
+}
 static void write_wav(void)
 {
     char name[512];
@@ -199,6 +221,13 @@ static void platform_poll(void)                 /* one call = one millisecond */
         uint32_t i;
         owed -= 1000u * HALF_FRAMES;
         memset(blk, 0, sizeof blk);
+        if (getenv("HOST_PROF")) {              /* HOST_PROF=1: each block's time on this computer (a profile, not the FM-1's) */
+            struct timespec a, b;
+            clock_gettime(CLOCK_MONOTONIC, &a);
+            app_audio(blk, HALF_FRAMES);
+            clock_gettime(CLOCK_MONOTONIC, &b);
+            prof_add(fm1_ms, (uint32_t)((b.tv_sec - a.tv_sec) * 1000000000L + (b.tv_nsec - a.tv_nsec)));
+        } else
         app_audio(blk, HALF_FRAMES);
         wav = realloc(wav, (wav_n + HALF_FRAMES) * 4u);
         for (i = 0; i < 2u * HALF_FRAMES; i++) {
@@ -217,6 +246,8 @@ static void platform_poll(void)                 /* one call = one millisecond */
         write_ppm(SHOT[shot++]);
     if (fm1_ms >= end_ms) {
         write_wav();
+        prof_report();
+        if (getenv("HOST_PROF_OUT") && prof_n) { FILE *f = fopen(getenv("HOST_PROF_OUT"), "wb"); if (f) { fwrite(prof_ns, 4, prof_n, f); fclose(f); } }
         exit(0);
     }
 }

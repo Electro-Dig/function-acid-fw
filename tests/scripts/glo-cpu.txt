@@ -1,0 +1,5 @@
+# GLO page 1: the CPU cell (average / peak)
+50 btn 12
+300 btn 7
+800 shot
+1000 end
