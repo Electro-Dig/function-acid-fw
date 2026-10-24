@@ -16,6 +16,11 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.46', '2026-10-24',
+     ['修 AUDIO CPU 的平均值算错（会显示 2868% 这种数）；峰值不变',
+      '波形窗：CUTOFF 开得很大时不再画成一片竖线'],
+     ['Fixed the AUDIO CPU average (it could read 2868%); the peak is as before',
+      'The wave: no grey hatch any more when CUTOFF is far above the note']),
     ('0.45', '2026-10-24',
      ['AUDIO CPU 改成两个数：平均 / 最近 2 秒最差的一块（之前只显示开机以来最差的一块，永远不归零，所以开机那一下就把它钉在高位）',
       '去掉几处一下子算很多的地方：909 的表在开机时做好（之前在第一块声音里做）；KEYS 的 PLUCK / GUITAR 起音时边弹边填琴弦（之前一下填满，扫弦一次 4 根）；换曲子 / 换鼓组时旋钮分几块设完（之前 11 行一次设完）'],

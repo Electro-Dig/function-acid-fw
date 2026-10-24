@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.45"
+#define APP_VER "0.46"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -1638,7 +1638,7 @@ static void app_audio(int32_t *out, uint32_t n)
     }
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
     if (cpu_us > cpu_max) cpu_max = cpu_us;
-    cpu_avg8 += (cpu_us * 256u - cpu_avg8) >> 6;   /* ~0.4 s */
+    cpu_avg8 = (uint32_t)((int32_t)cpu_avg8 + (((int32_t)(cpu_us * 256u) - (int32_t)cpu_avg8) >> 6));   /* ~0.4 s (signed: it falls too) */
 }
 
 /* ================================================================ the UI (main loop) */
@@ -2665,6 +2665,7 @@ static void sim303(float fcRatio, float res, int32_t sq, int32_t y0, int32_t h, 
     float y1 = 0, y2 = 0, y3 = 0, y4 = 0, ph = 0, g = 1.0f - f_exp2(-1.442695f * 6.2831853f * fcRatio / 50.0f), k = res * 3.7f, out;
     int32_t i, py0 = 0, yy;
     if (g > 0.95f) g = 0.95f;
+    (void)0;
     for (i = -200; i < 100; i++) {
         float x = sq ? (ph < 0.5f ? 0.8f : -0.8f) : 1.0f - 2.0f * ph, u = x - k * y4;
         if (u > 1.0f) u = 1.0f; else if (u < -1.0f) u = -1.0f;
@@ -2721,7 +2722,10 @@ static void draw_scope(void)
             q8 = z.cq ? z.cq : 24 * 256 + P.zCut * 144; res = (float)P.zRes / 127.0f; note = z.o.gate ? (z.o.y + 128) >> 8 : P.root + 12;
         }
         fc = hz_of(q8); if (fc < 30.0f) fc = 30.0f;
-        sim303(fc / hz_of(note << 8), res, t == 0u && P.aWave == 1u, 8, 50, INK);
+        {   /* the display's own 303: past 12x the note the ringing is finer than a pixel (a grey hatch), so it stops there */
+            float ratio = fc / hz_of(note << 8);
+            sim303(ratio > 12.0f ? 12.0f : ratio, res, t == 0u && P.aWave == 1u, 8, 50, INK);
+        }
         spectrum(hz_of(note << 8), fc, res, 66, 70, t == 0u ? REDC : TCOL[1], 1);
     } else if (t == 1u && P.bAnimal < 7u) {          /* ZOO's call: its pitch (ink) and its mouth (CUTOFF, the track's colour) */
         const call_t *c = &CALLS[P.bAnimal - 1u];
