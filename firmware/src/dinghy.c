@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.41"
+#define APP_VER "0.42"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -180,6 +180,10 @@ static void drum_pots(params_t *q)                   /* the kit's own knob defau
     uint32_t v, i;
     for (v = 0; v < 11u; v++) for (i = 0; i < 4u; i++) { const x0x_param_t *pp = dk_param(q->kit, v, i); q->drPot[v][i] = pp ? pp->def : 0; }
     if (q->kit != 2u) q->drPot[6][2] = 70;                                       /* the 909 clap: well under 9W9's 122 */
+    else {                                           /* the 808: each row's LEVEL (linear, 64 = x1) set so it sounds as loud as the 909's row */
+        static const uint8_t L8[11] = {127, 96, 127, 127, 127, 101, 50, 40, 24, 51, 69};
+        for (v = 0; v < 11u; v++) q->drPot[v][2] = L8[v];
+    }
 }
 static void drum_defaults(params_t *q)
 {
@@ -974,8 +978,8 @@ enum { KT_PAD, KT_PLUCK, KT_GUITAR, KT_EPIANO, KT_BELL, KT_PIANO, KT_DRONE };
 #define KV_N 8u
 #define KS_LEN 1024u
 typedef struct {
-    float p0, p1, p2, inc, env, atk, dk, rel, mi, mdk, t2, g, bri;
-    uint32_t wait;                                   /* samples before it starts (a strum) */
+    float p0, p1, p2, inc, env, atk, dk, rel, mi, mdk, t2, g, bri, sw[4];
+    uint32_t wait, age;                              /* samples before it starts (a strum); samples sounding */
     uint16_t len, pos; float ksLp, ksFb;
     uint8_t on, gate, note, type, from, midi;        /* from: 0 the steps, 1 a key, 2 a song's pad, 3 a song's tanpura */
 } kv_t;
@@ -1008,8 +1012,12 @@ static void kv_release(kv_t *v)
 }
 static void kv_start(uint32_t note, uint32_t type, float g, float bri, uint32_t wait, uint32_t from)
 {
-    uint32_t k, best = 0; float lo = 1e9f, f;
+    uint32_t k, best = 0, n3 = 0, old = 0, oldAge = 0; float lo = 1e9f, f;
     kv_t *v;
+    if (from == 3u) {                                /* the tanpura: four strings at most (the oldest gives way) */
+        for (k = 0; k < KV_N; k++) if (KV[k].on && KV[k].from == 3u) { n3++; if (KV[k].age >= oldAge) { oldAge = KV[k].age; old = k; } }
+        if (n3 >= 4u) KV[old].on = 0;
+    }
     for (k = 0; k < KV_N; k++) {                     /* a free voice, else the quietest one let go of, else the quietest */
         float e = KV[k].on ? KV[k].env + (KV[k].gate ? 2.0f : 0.0f) : -1.0f;
         if (e < lo) { lo = e; best = k; }
@@ -1024,7 +1032,8 @@ static void kv_start(uint32_t note, uint32_t type, float g, float bri, uint32_t 
         float dec = 0.4f + (float)P.hDec * (from >= 2u ? 0.0f : 0.045f);      /* DECAY: ~0.4 .. 6 s */
         switch (type) {
         case KT_PAD: v->atk = 1.0f / (0.35f * 44100.0f); v->dk = 1.0f; v->rel = tau_k(0.15f + dec * 0.12f); break;
-        case KT_DRONE: v->atk = 1.0f / (0.01f * 44100.0f); v->dk = tau_k(from == 3u ? 1.8f : 1.0f + dec); v->rel = tau_k(1.5f); break;
+        case KT_DRONE: v->atk = 1.0f / (0.01f * 44100.0f); v->dk = tau_k(from == 3u ? 1.8f : 1.0f + dec); v->rel = tau_k(from == 3u ? 0.05f : 1.5f);
+            v->sw[0] = v->sw[1] = v->sw[2] = v->sw[3] = 1.0f; break;
         case KT_EPIANO: v->atk = 1.0f / 90.0f; v->dk = tau_k(0.6f + dec * 0.6f); v->rel = tau_k(0.15f); v->mi = 1.0f + 2.2f * bri; v->mdk = tau_k(0.3f); v->t2 = 1.0f; break;
         case KT_BELL: v->atk = 1.0f / 40.0f; v->dk = tau_k(1.0f + dec); v->rel = tau_k(0.8f); v->mi = 1.5f + 4.0f * bri; v->mdk = tau_k(0.9f); break;
         case KT_PIANO: v->atk = 1.0f / 60.0f; v->dk = tau_k((0.5f + dec * 0.5f) * (f < 200.0f ? 1.3f : f > 800.0f ? 0.6f : 1.0f)); v->rel = tau_k(0.12f);
@@ -1084,6 +1093,8 @@ static inline float kv_run(float duck)              /* one sample of all eight *
         kv_t *v = &KV[k]; float x;
         if (!v->on) continue;
         if (v->wait) { v->wait--; continue; }
+        v->age++;
+        if (v->from == 3u && v->age > 4u * 44100u) v->gate = 0;          /* the tanpura's string: 4 s, then let go fast */
         if (v->type == KT_PLUCK || v->type == KT_GUITAR) {
             uint32_t a = v->pos, b = a + 1u >= v->len ? 0u : a + 1u;
             float y = ((float)ksBuf[k][a] + (float)ksBuf[k][b]) * 0.5f * v->ksFb;
@@ -1097,7 +1108,7 @@ static inline float kv_run(float duck)              /* one sample of all eight *
         if (v->gate && v->atk < 1.0f) { v->env += v->atk; if (v->env >= 1.0f) { v->env = 1.0f; v->atk = 1.0f; } }   /* the attack */
         else if (v->gate) { v->env *= v->dk; v->atk = 1.0f; }
         else v->env *= v->rel;
-        if (v->env < 0.0002f && (!v->gate || v->atk >= 1.0f)) { if (!v->gate || v->type != KT_PAD) { v->on = 0; continue; } }
+        if (v->env < 0.001f && (!v->gate || v->atk >= 1.0f)) { if (!v->gate || v->type != KT_PAD) { v->on = 0; continue; } }
         v->p0 += v->inc; if (v->p0 >= 1.0f) v->p0 -= 1.0f;
         switch (v->type) {
         case KT_PAD:
@@ -1106,11 +1117,20 @@ static inline float kv_run(float duck)              /* one sample of all eight *
             x = fsin(v->p0) + 0.5f * fsin(v->p1 + 0.16f) + 0.18f * fsin(2.0f * v->p0) + v->bri * (0.32f * fsin(3.0f * v->p0) + 0.22f * fsin(v->p2));
             x *= 0.5f;
             break;
-        case KT_DRONE: {                             /* 7 harmonics, 1/h, the high ones swaying */
-            float h, sw; uint32_t n;
-            v->p1 += 0.9f / 44100.0f; if (v->p1 >= 1.0f) v->p1 -= 1.0f;
-            x = 0.0f;
-            for (n = 1; n <= 7u; n++) { h = (float)n; sw = n > 3u ? 0.6f + 0.4f * fsin(v->p1 + h * 0.16f) : 1.0f; x += fsin(h * v->p0) / h * sw; }
+        case KT_DRONE: {                             /* 7 harmonics, 1/h, the high ones swaying: sin(h x) by recurrence from sin x, cos x */
+            float s1 = fsin(v->p0), c2 = 2.0f * fsin(v->p0 + 0.25f), a = 0.0f, b = s1, t;
+            if ((v->age & 63u) == 1u) {                  /* the sway, every 64 samples */
+                uint32_t n;
+                v->p1 += 64.0f * 0.9f / 44100.0f; if (v->p1 >= 1.0f) v->p1 -= 1.0f;
+                for (n = 0; n < 4u; n++) v->sw[n] = (0.6f + 0.4f * fsin(v->p1 + (float)(n + 4u) * 0.16f)) / (float)(n + 4u);
+            }
+            x = b;                                       /* h = 1 */
+            t = c2 * b - a; a = b; b = t; x += b * 0.5f;          /* 2 */
+            t = c2 * b - a; a = b; b = t; x += b * (1.0f / 3.0f); /* 3 */
+            t = c2 * b - a; a = b; b = t; x += b * v->sw[0];      /* 4..7 */
+            t = c2 * b - a; a = b; b = t; x += b * v->sw[1];
+            t = c2 * b - a; a = b; b = t; x += b * v->sw[2];
+            t = c2 * b - a; a = b; b = t; x += b * v->sw[3];
             x *= 0.45f;
             break;
         }
@@ -1354,7 +1374,7 @@ static void control(void)
 }
 
 static volatile uint32_t cpu_us, cpu_max;
-#define D8_GAIN 600                                         /* the 808 against the 909 (tuned by ear and RMS) */
+#define D8_GAIN 450                                         /* the 808 against the 909 (tuned by ear and RMS) */
 static drum909_t D9;
 static drum808_t D8;
 static float drBuf[256], d8Rev[256], d8Dly[256];   /* the 808 always writes its two sends: nowhere to go here */
@@ -1850,7 +1870,7 @@ static void sg_enter(uint32_t n, int demo)          /* play song n from its star
     P.aLvl = 100; P.aSub = 0; P.aTune = 0; P.aFilt = 0; P.aGate = 50; P.aGlide = 0; P.dTime = 2; P.dTone = 64;
     P.terms = (uint16_t)(P.terms & ~(T_BIO | T_PERC)); P.mutes = 0; P.kDuck = 40; P.kLvl = 110;
     drum_defaults(&P); P.kit = g->kit ? g->kit : 1u; drum_pots(&P); drDirty = 0x7FFu;   /* RAGA's soft kit: the 808 */
-    if (g->soft) { P.drPot[7][2] = 18; P.drPot[8][2] = 24; P.drPot[9][2] = 20; }           /* soft: the hats and the cymbal well down */
+    if (g->soft) { P.drPot[1][2] = 70; P.drPot[1][3] = 30; P.drPot[7][2] = 24; P.drPot[8][2] = 14; P.drPot[9][2] = 30; }   /* soft: little snare rattle, hats and cymbal at half */
     memset(P.mot, 255, sizeof P.mot); motAny = 0;
     for (v = 0; v < 4u; v++) motTouch[v] = 0;
     SG.song = (uint8_t)n; SG.demo = (uint8_t)demo; SG.loop = 0; SG.ended = 0; SG.own = 0; SG.jump = -1; SG.off = 0;

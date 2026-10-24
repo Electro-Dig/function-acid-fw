@@ -1,0 +1,20 @@
+# 0.41 check: RAGA, 30-40 s ACID muted (GLO + white 1), 40-50 s ACID back and T3 muted (GLO + white 3), 50-60 s ZOO/KEYS only
+500 hold 8
+600 keys 0x1000
+700 keys 0
+800 release 8
+30000 hold 7
+30050 keys 0x1
+30100 keys 0
+30150 release 7
+40000 hold 7
+40050 keys 0x1
+40100 keys 0
+40150 keys 0x10
+40200 keys 0
+40250 release 7
+50000 hold 7
+50050 keys 0x1
+50100 keys 0
+50150 release 7
+60000 end

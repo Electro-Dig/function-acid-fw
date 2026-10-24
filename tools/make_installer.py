@@ -16,6 +16,11 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.42', '2026-10-24',
+     ['修 RAGA 鼓进来后刺耳：808 整套原来被放大到 909 的 4 倍（按底鼓对齐的），镲和军鼓的响弦太冲。现在 808 每一行单独对齐到 909 同一行的音量；RAGA 的软鼓再把军鼓响弦和镲压低',
+      '坦普拉减负：照原曲最多 4 根弦、每根 4 秒；泛音改用递推算。RAGA 在电脑上的计算量降了一半（之前很可能让机器算不过来，出现杂音）'],
+     ['Fixed RAGA turning harsh when the drums come in: the whole 808 was 4x the 909 (matched on the kick), so its hats and snare rattle were far too loud. Each 808 row now matches the 909 row; the RAGA soft kit takes the snare rattle and the cymbals further down',
+      'The tanpura is lighter: four strings at most, 4 s each (as the web song), its harmonics by recurrence. RAGA costs half as much to compute (before, the FM-1 may not have kept up: crackles)']),
     ('0.41', '2026-10-24',
      ['第 2 轨改成 ZOO：第二台 303，也会学动物叫。VOICE：ACID B（正常的 303，和 ACID 对着弹），MEOW / MEW / MOO / QUACK / WOOF / MEOW LONG（用 303 自己的方式叫：音高靠步 + 滑音，CUTOFF 是嘴），还有原来的苍蝇、蜜蜂、青蛙、鲸。CUTOFF 让嘴变大变小。放曲子时，曲子里的第二台 303 也由它来发声',
       '第 3 轨多了 808（KIT：FUNC / 909 / 808）。同样是 11 行格子，最后两行是 CY（镲）和 CB（牛铃）；LT MT HT 的第 4 个旋钮切 TOM / CONGA，RS 切 RIM / CLAVE，CP 切 CLAP / MARACAS',
