@@ -1,0 +1,54 @@
+# acid-cat test: the animal calls alone (stopped, so no drums), delay and reverb off to measure them.
+# FX tap -> DELAY page, MIX down; FX tap -> SPACE, REVERB down. Then FX held + each black key, 2.5 s apart:
+# 6.. MEOW MEW MOO QUACK WOOF (own register, black keys 6-10), then LONG (11), then the low ones (black keys 1-5)
+50 btn 12
+100 btn 2
+200 enc 4 -80
+300 btn 2
+400 enc 2 -80
+1000 hold 2
+1100 keys 0x2000
+1200 keys 0
+1300 release 2
+3500 hold 2
+3600 keys 0x8000
+3700 keys 0
+3800 release 2
+6000 hold 2
+6100 keys 0x20000
+6200 keys 0
+6300 release 2
+8500 hold 2
+8600 keys 0x100000
+8700 keys 0
+8800 release 2
+11000 hold 2
+11100 keys 0x400000
+11200 keys 0
+11300 release 2
+13500 hold 2
+13600 keys 0x2000000
+13700 keys 0
+13800 shot
+13900 release 2
+17000 hold 2
+17100 keys 0x2
+17200 keys 0
+17300 release 2
+19500 hold 2
+19600 keys 0x8
+19700 keys 0
+19800 release 2
+22000 hold 2
+22100 keys 0x20
+22200 keys 0
+22300 release 2
+24500 hold 2
+24600 keys 0x100
+24700 keys 0
+24800 release 2
+27000 hold 2
+27100 keys 0x400
+27200 keys 0
+27300 release 2
+29500 end
