@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.43"
+#define APP_VER "0.44"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -846,10 +846,9 @@ static void eval_bio(uint32_t s, uint32_t p16, voice_t *o)
     o->y = y; o->amp = (amp * gateEnd) >> 15; o->on = o->amp > 900;
 }
 
-static uint32_t perc_on(uint32_t s)                /* 0.41: T4 KEYS plays a chord at step s (2), or one note of it (ARP: 1) */
+static uint32_t perc_pat(uint32_t s)               /* 0.41: T4 KEYS plays a chord at step s (2), or one note of it (ARP: 1) */
 {
     uint32_t j = s & 15u;
-    if (!(P.terms & T_PERC) || !run) return 0;
     if (laneN[3]) { uint32_t v = P.lane[3][s & (LANE - 1u)]; return v != NONE && !(v & 128u) ? 2u : 0u; }   /* your notes: a chord on each */
     switch (P.hPat) {
     case 0: return j == 0u ? 2u : 0u;                                   /* HOLD: a bar */
@@ -860,6 +859,7 @@ static uint32_t perc_on(uint32_t s)                /* 0.41: T4 KEYS plays a chor
     default: return 1u;                                                 /* ARP: every 16th, up the chord */
     }
 }
+static uint32_t perc_on(uint32_t s) { return (P.terms & T_PERC) && run ? perc_pat(s) : 0u; }
 
 /* ---------------------------------------------------------------- the sound (audio ISR) */
 #define DMASK 32767u
@@ -1635,11 +1635,11 @@ static void app_audio(int32_t *out, uint32_t n)
 }
 
 /* ================================================================ the UI (main loop) */
-#define INK RGB(29, 29, 27)
-#define LIME RGB(196, 228, 90)
-#define PAPER RGB(206, 234, 112)
-#define REDC RGB(216, 32, 74)
-static const uint16_t TCOL[4] = {RGB(29, 29, 27), RGB(176, 16, 58), RGB(29, 63, 174), RGB(122, 74, 0)};
+#define INK RGB(31, 35, 40)
+#define LIME RGB(255, 253, 247)                     /* 0.44: the light on ink (it was a lime green) */
+#define PAPER RGB(246, 243, 236)
+#define REDC RGB(217, 72, 59)
+static const uint16_t TCOL[4] = {RGB(209, 73, 91), RGB(42, 157, 143), RGB(58, 110, 165), RGB(38, 50, 74)};
 static const char *TRK[4] = {"ACID", "ZOO", "KICK", "KEYS"};   /* T3 reads "909" on the 909 kit */
 static uint16_t mixc(uint16_t a, uint16_t b, uint32_t t)   /* a towards b, t 0..16 */
 {
@@ -2402,175 +2402,404 @@ static void chip(int32_t x, int32_t y, uint32_t t, int ring)
     cv_rect(x, y, 11, 11, TCOL[t]);
     t5(x + 3, y + 2, d, LIME);
 }
-static void draw_top(void)                                   /* 0..58: the page, the transport, the 4 cells */
+/* ---------------------------------------------------------------- 0.44: the screen in the Acid films' look (一线一色):
+ * paper, one ink, a colour per track. 0..70: the page and four round knobs. 70..240: the selected track's sequencer as a
+ * ring (16 steps round, the pointer sweeping, higher notes further out) and, right of it, its sound: a wave over the
+ * filter's spectrum. The drum grid, the steps and the key maps keep their own pages (70..180) over a strip (180..240) */
+static int32_t isin(int32_t a) { return SINT[a & 1023]; }                  /* a: 1024 a turn, 0 = right, clockwise (y down) */
+static int32_t icos(int32_t a) { return SINT[(a + 256) & 1023]; }
+static void disc(int32_t cx, int32_t cy, int32_t r, uint16_t c)
+{
+    int32_t dy, dx;
+    for (dy = -r; dy <= r; dy++) {
+        for (dx = 0; (dx + 1) * (dx + 1) + dy * dy <= r * r + r; dx++) { }
+        cv_rect(cx - dx, cy + dy, 2 * dx + 1, 1, c);
+    }
+}
+static void dot(int32_t cx, int32_t cy, int32_t r, uint16_t fill) { disc(cx, cy, r, INK); if (r > 1) disc(cx, cy, r - 1, fill); }
+static void circ(int32_t cx, int32_t cy, int32_t r, uint16_t c)
+{
+    int32_t i, n = r * 6 + 8;
+    for (i = 0; i < n; i++) { int32_t q = i * 1024 / n; cv_pset(cx + ((r * icos(q)) >> 15), cy + ((r * isin(q)) >> 15), c); }
+}
+static void arcq(int32_t cx, int32_t cy, int32_t r, int32_t a0, int32_t a1, int32_t th, uint16_t c)   /* a0 < a1, th px inwards */
+{
+    int32_t i, t, n = (a1 - a0) * r / 120 + 3;
+    for (i = 0; i <= n; i++) {
+        int32_t q = a0 + (a1 - a0) * i / n;
+        for (t = 0; t < th; t++) cv_pset(cx + (((r - t) * icos(q)) >> 15), cy + (((r - t) * isin(q)) >> 15), c);
+    }
+}
+static void ray(int32_t cx, int32_t cy, int32_t r, int32_t a, uint16_t c) { cv_line(cx, cy, cx + ((r * icos(a)) >> 15), cy + ((r * isin(a)) >> 15), c); }
+static float hz_of(int32_t q8) { return 440.0f * f_exp2(((float)q8 / 256.0f - 69.0f) / 12.0f); }
+#define FAINT mixc(PAPER, INK, 3)
+#define CREAM RGB(255, 253, 247)
+static const uint16_t KNC[4] = {RGB(209, 73, 91), RGB(217, 72, 59), RGB(61, 163, 122), RGB(47, 111, 176)};
+
+static void knob(int32_t cx, int32_t cy, int32_t r, int32_t v, int32_t lo, int32_t hi, uint16_t col)   /* a round knob: 270 degrees */
+{
+    int32_t f = hi > lo ? (v - lo) * 768 / (hi - lo) : 0;
+    f = f < 0 ? 0 : f > 768 ? 768 : f;
+    arcq(cx, cy, r, 384, 384 + 768, 3, FAINT);
+    if (f) arcq(cx, cy, r, 384, 384 + f, 3, col);
+    disc(cx, cy, r - 5, INK); disc(cx, cy, r - 6, CREAM);
+    ray(cx, cy, r - 6, 384 + f, INK); ray(cx + 1, cy, r - 6, 384 + f, INK);
+}
+static void cell_text(int32_t x0, const char *lab, const char *val, int hot)   /* under a knob: its name, its value */
+{
+    int32_t w = (int32_t)slen(lab) * 6 - 1;
+    t5(x0 + 30 - w / 2, 45, lab, hot ? REDC : INK);
+    w = text_w(&FONT_S, val);
+    if (w <= 58) tx(x0 + 30 - w / 2, 53, &FONT_S, val, hot ? REDC : INK, PAPER);
+    else { w = (int32_t)slen(val) * 6 - 1; t5(x0 + 30 - w / 2, 58, val, hot ? REDC : INK); }
+}
+static void draw_top(void)                                   /* 0..70: the page, the transport, four knobs */
 {
     const page_t *pg = cur_page();
     char s[32];
-    uint32_t i, x = 4;
-    int edit = U.group == G_EDIT || U.group == G_ENV;
-    cv_begin(240, 58, PAPER);
-    if (edit) { chip(3, 3, U.part, U.rec); x = 18; }
-    s[0] = 0;
-    if (edit) { scat(s, TRK[U.part]); scat(s, ">"); }
+    uint32_t i;
+    int32_t x = 4, w;
+    cv_begin(240, 70, PAPER);
+    /* the bar: the track's colour, the page (or the song and its section), the clock */
+    cv_rect(4, 4, 9, 9, TCOL[U.part & 3u]);
+    if (U.rec) { cv_rect(3, 3, 11, 1, REDC); cv_rect(3, 13, 11, 1, REDC); cv_rect(3, 3, 1, 11, REDC); cv_rect(13, 3, 1, 11, REDC); }
+    x = 18; s[0] = 0;
     if (steps_page() && U.stepHeld >= 0) { scat(s, "STEP "); sint(s, U.stepHeld + 1); }
-    else if (SG.on && U.group == G_HOME) {
+    else if (SG.on && (U.group == G_HOME || U.group == G_SEQ)) {
         const sg_song_t *g = sgs();
         if (SG.demo && (fm1_ms / 2500u) % 2u) scat(s, "PLAY = YOUR SET");
         else { scat(s, g->name); scat(s, " > "); scat(s, g->secName[SG.sec < g->nsec ? SG.sec : 0]); }
     }
     else if (U.group == G_DRUM) { scat(s, P.kit == 2u ? "808 > " : "909 > "); scat(s, drn(P.drSel)); }
-    else scat(s, pg->name);
-    if (steps_page() && P.sLen > 16u) scat(s, U.page ? " 17-32" : " 1-16");
-    else if (npages() > 1u) { scat(s, " "); sint(s, U.page % npages() + 1u); scat(s, "/"); sint(s, npages()); }
-    t5((int32_t)x, 5, s, INK);
-    s[0] = 0;
-    if (edit) scat(s, pre_name(U.part, P.pre[U.part]));        /* on a track's pages: its preset instead of the clock */
-    else if (SG.on && E.playing) { sint(s, SG.curSb + 1); scat(s, "/"); sint(s, sgs()->nb); }
-    else { if (E.playing) { sint(s, (E.s >> 4) % 99u + 1u); scat(s, "."); sint(s, ((E.s & 15u) >> 2) + 1u); scat(s, "  "); } sint(s, P.bpm); }
-    i = 236u - 6u * slen(s);
-    t5((int32_t)i, 5, s, INK);
-    if (E.playing) { cv_rect((int32_t)i - 9, 5, 2, 7, INK); cv_rect((int32_t)i - 7, 6, 2, 5, INK); cv_rect((int32_t)i - 5, 7, 2, 3, INK); }
-    else cv_rect((int32_t)i - 9, 5, 6, 7, mixc(PAPER, INK, 8));
-    if (U.rec) cv_rect((int32_t)i - 20, 5, 7, 7, REDC);
-    if (riseStart >= 0) t5((int32_t)i - 48, 5, "RISE", REDC);
-    if (SG.on && SG.loop) t5((int32_t)i - 48, 5, "LOOP", REDC);
+    else if (U.group == G_HOME) { scat(s, TRK[U.part & 3u]); scat(s, " "); scat(s, pre_name(U.part & 3u, P.pre[U.part & 3u])); }
+    else {
+        if (U.group == G_EDIT || U.group == G_ENV) { scat(s, TRK[U.part & 3u]); scat(s, ">"); }
+        scat(s, pg->name);
+    }
+    if (steps_page() && P.sLen > 16u && !SG.on) scat(s, U.page ? " 17-32" : " 1-16");
+    else if (npages() > 1u && U.group != G_HOME) { scat(s, " "); sint(s, U.page % npages() + 1u); scat(s, "/"); sint(s, npages()); }
+    {
+        char r[16] = "";
+        int32_t rw;
+        if (SG.on && E.playing) { sint(r, SG.curSb + 1); scat(r, "/"); sint(r, sgs()->nb); }
+        else { if (E.playing) { sint(r, (E.s >> 4) % 99u + 1u); scat(r, "."); sint(r, ((E.s & 15u) >> 2) + 1u); scat(r, " "); } sint(r, P.bpm); }
+        rw = text_w(&FONT_S, r);
+        tx(236 - rw, 0, &FONT_S, r, INK, PAPER);
+        if (E.playing) { cv_rect(236 - rw - 9, 4, 2, 9, INK); cv_rect(236 - rw - 7, 5, 2, 7, INK); cv_rect(236 - rw - 5, 6, 2, 5, INK); cv_rect(236 - rw - 3, 7, 1, 3, INK); }
+        else cv_rect(236 - rw - 9, 4, 8, 8, mixc(PAPER, INK, 7));
+        if (riseStart >= 0) t5(236 - rw - 40, 5, "RISE", REDC);
+        if (SG.on && SG.loop) t5(236 - rw - 40, 5, "LOOP", REDC);
+        w = 236 - rw - (riseStart >= 0 || (SG.on && SG.loop) ? 44 : 14) - x;
+        if (text_w(&FONT_S, s) <= w) tx(x, 0, &FONT_S, s, INK, PAPER); else t5(x, 5, s, INK);
+    }
+    cv_rect(0, 17, 240, 1, FAINT);
+    /* the four knobs */
     for (i = 0; i < 4u; i++) {
-        int32_t x0 = 3 + (int32_t)i * 59, k = pg->k[i], hot = U.touch == (int8_t)i && fm1_ms - U.touchT < 800u;
-        uint16_t fg = hot ? LIME : INK, bg = hot ? INK : PAPER;
-        if (hot) cv_rect(x0, 18, 57, 38, INK);
-        else { cv_rect(x0, 18, 57, 1, mixc(PAPER, INK, 7)); cv_rect(x0, 55, 57, 1, mixc(PAPER, INK, 7)); cv_rect(x0, 18, 1, 38, mixc(PAPER, INK, 7)); cv_rect(x0 + 56, 18, 1, 38, mixc(PAPER, INK, 7)); }
+        int32_t x0 = (int32_t)i * 60, k = pg->k[i], hot = U.touch == (int8_t)i && fm1_ms - U.touchT < 800u, cx = x0 + 30, cy = 30;
+        uint16_t col = i == 0u ? TCOL[U.part & 3u] : KNC[i];
         if (k == PM_NONE && U.group == G_GLO && i == 1u) {          /* GLOBAL: how much of the 5.8 ms the sound takes */
             s[0] = 0; sint(s, (int32_t)(cpu_max * 100u / 5805u)); scat(s, "%");
-            t5(x0 + 3, 21, "AUDIO CPU", mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
-            s[0] = 0; scat(s, "FPU "); scat(s, fpuIsr == 1u && fpuMain == 1u ? "OK " : fpuIsr && fpuMain ? "ERR " : "... "); sint(s, (int32_t)fpu_us); scat(s, "US");
-            t5(x0 + 3, 47, s, fpuIsr > 1u || fpuMain > 1u ? REDC : fg);
+            knob(cx, cy, 13, (int32_t)(cpu_max * 100u / 5805u), 0, 100, cpu_max * 100u / 5805u > 70u ? REDC : KNC[2]);
+            cell_text(x0, "AUDIO CPU", s, fpuIsr > 1u || fpuMain > 1u);
             continue;
         }
         if (U.group == G_DRUM) {
             const x0x_param_t *pp = dk_param(P.kit, P.drSel, i);
             if (!pp) continue;
+            knob(cx, cy, 13, P.drPot[P.drSel][i], 0, pp->max ? pp->max : 1, TCOL[2]);
             s[0] = 0; sint(s, P.drPot[P.drSel][i]);
-            t5(x0 + 3, 21, pp->name, hot ? LIME : mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
-            cv_rect(x0 + 3, 50, 51, 2, hot ? mixc(INK, LIME, 5) : mixc(PAPER, INK, 4)); cv_rect(x0 + 3, 50, 51 * P.drPot[P.drSel][i] / (pp->max ? pp->max : 1), 2, fg);
+            {
+                char lab[12] = ""; uint32_t n;
+                for (n = 0; pp->name[n] && n < 9u; n++) lab[n] = pp->name[n];
+                lab[n] = 0; cell_text(x0, lab, s, hot);
+            }
             continue;
         }
         if (steps_page() && U.stepHeld >= 0) {
             const char *lab;
             step_cell(i, &lab, s);
-            t5(x0 + 3, 21, lab, hot ? LIME : mixc(PAPER, INK, 12)); tx(x0 + 3, 31, &FONT_S, s, fg, bg);
+            cell_text(x0, lab, s, hot);
+            circ(cx, cy, 13, FAINT);
             continue;
         }
         if (k == PM_NONE) continue;
-        t5(x0 + 3, 21, PM[k].lab, hot ? LIME : mixc(PAPER, INK, 12));
         pfmt((uint32_t)k, s);
+        if (k == PM_CUT) { int32_t hz = (int32_t)hz_of(24 * 256 + pget(PM_CUT) * 144); s[0] = 0; if (hz >= 1000) { sint(s, hz / 1000); scat(s, "."); sint(s, hz % 1000 / 100); scat(s, "K"); } else { sint(s, hz); scat(s, "HZ"); } }
         {   /* knob motion: the moving value, and a red mark */
             uint32_t m;
             for (m = 0; m < 4u; m++)
                 if (PM[k].off == MOT_OFF[m] && (motAny >> m & 1u)) {
-                    cv_rect(x0 + 49, 21, 5, 5, REDC);
+                    disc(cx + 13, cy - 12, 2, REDC);
                     if (E.playing) { s[0] = 0; if (k == PM_ADEC && STEPS) { sint(s, (int32_t)tau_ms((uint32_t)mv(3, E.s, E.stepPh >> 16))); scat(s, "MS"); } else sint(s, mv(m, E.s, E.stepPh >> 16)); }
                 }
         }
-        if (text_w(&FONT_S, s) <= 54) tx(x0 + 3, 31, &FONT_S, s, fg, bg);
-        else t5(x0 + 3, 36, s, fg);
-        {
-            int32_t lo = PM[k].min, hi = k == PM_OFF ? P.N - 1 : PM[k].max, v = pget((uint32_t)k);
-            cv_rect(x0 + 3, 50, 51, 2, hot ? mixc(INK, LIME, 5) : mixc(PAPER, INK, 4));
-            if (hi > lo) cv_rect(x0 + 3, 50, 51 * (v - lo) / (hi - lo), 2, fg);
-        }
+        knob(cx, cy, 13, pget((uint32_t)k), PM[k].min, k == PM_OFF ? P.N - 1 : PM[k].max, col);
+        cell_text(x0, PM[k].lab, s, hot);
     }
     cv_blit(0, 0);
 }
 
-static void draw_readout(void);
-static void draw_graph(void)                                 /* 58..166: the four functions on one pair of axes */
+static void draw_readout(int32_t ox, int32_t oy, int32_t ys)   /* what a knob did, or a message: a band at screen y ys */
 {
-    uint32_t c, s0 = E.s & ~31u, colNow = ((E.s & 31u) * 7u) + ((E.stepPh >> 16) * 7u >> 16);
-    int edit = U.group == G_EDIT || U.group == G_ENV, fo = edit ? (int)U.part : -1;
-    int32_t pyA = 0, pyB = 0, pyK = 0, gA0 = 0, gB0 = 0, gK0 = 0, yNowA = 0, yNowB = 0, yNowK = 0, bNow = 0, kNow = 0;
-    uint16_t cA, cB, cK, cAf, cBf, cKf;
-    cv_begin(240, 108, PAPER);
-
-    cA = mixc(PAPER, TCOL[0], fo < 0 || fo == 0 ? 16 : 5); cB = mixc(PAPER, TCOL[1], fo < 0 || fo == 1 ? 16 : 5); cK = mixc(PAPER, TCOL[2], fo < 0 || fo == 2 ? 16 : 5);
-    cAf = mixc(PAPER, TCOL[0], 4); cBf = mixc(PAPER, TCOL[1], 4); cKf = mixc(PAPER, TCOL[2], 3);
-    /* axes */
-    cv_rect(GX0 - 2, AXY - 58, COLS + 6, 1, mixc(PAPER, INK, 13));
-    cv_rect(GX0 + COLS / 2, GY0 - 58, 1, GY1 - GY0, mixc(PAPER, INK, 13));
-    t5(GX0 + COLS - 4, AXY - 58 - 9, "X", INK); t5(GX0 + COLS / 2 - 8, 3, "Y", INK);
-    for (c = 0; c < COLS; c++) {
-        uint32_t s = s0 + c / 7u, p16 = (c % 7u) * 9362u, x = GX0 + c, past = c <= colNow;
-        acid_t a; voice_t b, k;
-        int32_t ya, yb, yk, fc;
-        eval_acid(s, p16, &a, 0); eval_bio(s, p16, &b); eval_kick(s, p16, &k);
-        ya = clampy(py(a.y)) - 58; yb = clampy(py(b.y)) - 58; yk = clampy(py(k.y)) - 58;
-        if (P.mutes & 1u) a.gate = 0;
-        if (P.mutes & 2u) b.on = 0;
-        if (P.mutes & 4u) k.on = 0;
-        /* the ACID's harmonics under its filter: the spectrum, lighter the further above the cutoff */
-        if (past && a.gate && (fo < 0 || fo == 0) && (c & 1u) == 0u) {
-            static const uint8_t HS[8] = {12, 19, 24, 28, 31, 34, 36, 38};
-            uint32_t h;
-            fc = cutoff_at(&a, s, p16);
-            for (h = 0; h < 8u; h++) {
-                int32_t hp = a.y + (HS[h] << 8), dd = (hp - fc) >> 8, lv = 9 - (int32_t)h;
-                int32_t yy = py(hp) - 58;
-                if (dd > 0) lv -= dd / 3;
-                if (dd > -2 && dd < 3) lv += P.res >> 5;
-                if (lv <= 1 || yy < GY0 - 58) continue;
-                cv_rect((int32_t)x, yy, 1, 2, mixc(PAPER, INK, (uint32_t)(lv > 9 ? 9 : lv)));
-            }
-            if (c % 3u == 0u) { int32_t yc = py(fc) - 58; if (yc > GY0 - 58 && yc < GY1 - 58) cv_rect((int32_t)x, yc, 2, 1, mixc(PAPER, INK, U.page == 1u && fo == 0 ? 16 : 9)); }
-        }
-        /* PERC: a band at the top */
-        if (past && (P.terms & T_PERC) && !(P.mutes & 8u) && (fo < 0 || fo == 3)) {
-            uint32_t h = perc_on(s);
-            if (h && p16 < (P.hType ? 40000u : 20000u)) cv_rect((int32_t)x, 4 + (int32_t)((c * 37u) % 9u), 1, P.hType == 2 ? 10 : 3, mixc(PAPER, TCOL[3], h == 2u ? 14 : 8));
-        }
-        if (c) {
-            if (k.on && gK0) cv_line((int32_t)x - 1, pyK, (int32_t)x, yk, past ? cK : cKf);
-            if (k.on && gK0 && past && (fo < 0 || fo == 2)) cv_line((int32_t)x - 1, pyK + 1, (int32_t)x, yk + 1, cK);
-            if (a.gate && gA0 && (pyA - ya < 9 && ya - pyA < 9)) cv_line((int32_t)x - 1, pyA, (int32_t)x, ya, past ? cA : cAf);
-            if (a.gate && gA0 && past && fo == 0) cv_line((int32_t)x - 1, pyA - 1, (int32_t)x, ya - 1, cA);
-            if (b.on && gB0 && (c % 6u) < 4u) { cv_line((int32_t)x - 1, pyB, (int32_t)x, yb, past ? cB : cBf); if (past) cv_line((int32_t)x - 1, pyB + 1, (int32_t)x, yb + 1, cB); }
-        }
-        pyA = ya; pyB = yb; pyK = yk; gA0 = a.gate; gB0 = b.on; gK0 = k.on;
-        if (c == colNow) { yNowA = ya; yNowB = yb; yNowK = yk; bNow = b.on; kNow = k.on; }
+    char s[40]; s[0] = 0;
+    if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && U.group == G_DRUM) {
+        const x0x_param_t *pp = dk_param(P.kit, P.drSel, (uint32_t)U.touch);
+        if (pp) { scat(s, drn(P.drSel)); scat(s, " "); scat(s, pp->name); scat(s, " "); sint(s, P.drPot[P.drSel][U.touch]); }
+    } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && steps_page() && U.stepHeld >= 0) {
+        const char *lab; char v[12];
+        step_cell((uint32_t)U.touch, &lab, v);
+        scat(s, "STEP "); sint(s, U.stepHeld + 1); scat(s, " "); scat(s, lab); scat(s, " "); scat(s, v);
+    } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u) {
+        uint32_t k = cur_page()->k[U.touch];
+        if (PM[k].part < 4u) { scat(s, TRK[PM[k].part]); scat(s, " "); }
+        scat(s, PM[k].lab); scat(s, " "); pfmt(k, s + slen(s));
+    } else if (fm1_ms - U.toastT < 1100u) scat(s, U.toast);
+    if (s[0]) {
+        int32_t w = text_w(&FONT_S, s) + 14, x;
+        if (w > 236) w = 236;
+        x = (240 - w) / 2;
+        cv_rect(x - ox, ys - oy, w, 22, INK);
+        tx(x + 7 - ox, ys + 3 - oy, &FONT_S, s, CREAM, INK);
     }
-    /* the playheads: ACID a red dot, BIO a red ring, KICK a blue dot */
-    {
-        int32_t x = GX0 + (int32_t)colNow;
-        if (kNow) cv_rect(x - 2, yNowK - 2, 5, 5, cK);
-        if (bNow) { cv_rect(x - 3, yNowB - 3, 7, 1, REDC); cv_rect(x - 3, yNowB + 3, 7, 1, REDC); cv_rect(x - 3, yNowB - 3, 1, 7, REDC); cv_rect(x + 3, yNowB - 3, 1, 7, REDC); }
-        cv_rect(x - 3, yNowA - 2, 7, 5, REDC); cv_rect(x - 2, yNowA - 3, 5, 7, REDC);
-    }
-    if (U.group == G_SEQ && !steps_page()) { cv_rect(4, 4, 160, 11, LIME); t5(6, 6, "OCT+ NEW LINE  OCT- MUTATE", INK); }
-    draw_readout();
-    cv_oy = 0;
-    cv_blit(0, 58);
 }
-static void draw_readout(void)                               /* what a knob did (with its track), or a message */
+
+/* ---- the ring: the selected track's 16 steps of this bar (the 909 / 808: three rings, BD in, snares, hats out) */
+#define RCX 66
+#define RCY 76
+#define RR 54
+static int32_t step_ang(uint32_t i) { return (int32_t)i * 64 - 256; }
+static void ring_pos(uint32_t i, int32_t r, int32_t *x, int32_t *y) { int32_t a = step_ang(i); *x = RCX + ((r * icos(a)) >> 15); *y = RCY + ((r * isin(a)) >> 15); }
+static void draw_ring(void)
 {
-    {
-        char s[40]; s[0] = 0;
-        if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && U.group == G_DRUM) {
-            const x0x_param_t *pp = dk_param(P.kit, P.drSel, (uint32_t)U.touch);
-            if (pp) { scat(s, drn(P.drSel)); scat(s, " "); scat(s, pp->name); scat(s, " "); sint(s, P.drPot[P.drSel][U.touch]); }
-        } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u && steps_page() && U.stepHeld >= 0) {
-            const char *lab; char v[12];
-            step_cell((uint32_t)U.touch, &lab, v);
-            scat(s, "STEP "); sint(s, U.stepHeld + 1); scat(s, " "); scat(s, lab); scat(s, " "); scat(s, v);
-        } else if (U.touch >= 0 && fm1_ms - U.touchT < 1000u) {
-            uint32_t k = cur_page()->k[U.touch];
-            if (PM[k].part < 4u) { scat(s, TRK[PM[k].part]); scat(s, " "); }
-            scat(s, PM[k].lab); scat(s, " "); pfmt(k, s + slen(s));
-        } else if (fm1_ms - U.toastT < 1100u) scat(s, U.toast);
-        if (s[0]) {
-            int32_t w = text_w(&FONT_S, s) + 14;
-            if (w > 236) w = 236;
-            cv_rect((240 - w) / 2, 80, w, 22, INK);
-            tx((240 - w) / 2 + 7, 83, &FONT_S, s, LIME, INK);
-        }
+    uint32_t t = U.part & 3u, i, s0 = E.s & ~15u, now = E.s & 15u;
+    uint16_t col = TCOL[t];
+    char c[16] = "";
+    cv_begin(134, 170, PAPER);
+    if (E.playing) {                                 /* the pointer: a pale wedge and an ink hand */
+        int32_t a = step_ang(now) + (int32_t)((E.stepPh >> 16) * 64u >> 16), q;
+        for (q = a - 14; q <= a + 14; q += 2) ray(RCX, RCY, RR - 6, q, mixc(PAPER, KNC[2], 4));
+        ray(RCX, RCY, RR - 4, a, INK);
     }
+    if (t == 2u && P.kit) {
+        static const uint8_t RING[11] = {0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2};        /* BD | SD LT MT HT RS CP | CH OH CR RD */
+        static const int32_t RAD[3] = {24, 38, 52};
+        uint16_t on[11], ac[11];
+        uint32_t r;
+        drum_masks(s0, on, ac);
+        for (r = 0; r < 3u; r++) circ(RCX, RCY, RAD[r], FAINT);
+        for (i = 0; i < 16u; i++)
+            for (r = 0; r < 3u; r++) {
+                uint32_t v, hit = 0, acc = 0; int32_t x, y;
+                for (v = 0; v < 11u; v++) if (RING[v] == r && !(P.drMute >> v & 1u) && (on[v] >> i & 1u)) { hit = 1; acc |= ac[v] >> i & 1u; }
+                ring_pos(i, RAD[r], &x, &y);
+                if (hit) dot(x, y, acc ? 4 : 3, E.playing && i == now ? INK : acc ? REDC : col);
+                else cv_rect(x, y, 1, 1, mixc(PAPER, INK, 8));
+            }
+        scat(c, P.kit == 2u ? "808" : "909");
+    } else {
+        int16_t nt[16]; uint8_t fl[16];
+        int32_t ref = P.root + (t == 0u ? 6 : t == 3u ? 30 : 18);
+        for (i = 0; i < 16u; i++) {
+            uint32_t s = s0 + i;
+            nt[i] = -1; fl[i] = 0;
+            if (t == 0u && SG.on) {                   /* a song: its bar */
+                uint32_t v = WA.v[16u + i];
+                if (v != NONE) { nt[i] = (int16_t)win_note(&WA, 16u + i); fl[i] = (uint8_t)((WA.f[16u + i] & 1u) | (win_leg(&WA, 16u + i) ? 2u : 0u)); }
+            } else if (t == 0u && STEPS) {            /* the steps as written (also when stopped): the half that plays */
+                uint32_t L = step_len(), j = ((E.s % L) & 16u) + i, v;
+                if (j < L && (v = P.lane[0][j]) != NONE) { nt[i] = (int16_t)step_note(j, L); fl[i] = (uint8_t)((accB() >> j & 1u) | (legato_into(j, L) ? 2u : 0u)); }
+            } else if (t == 0u) { acid_t a; eval_acid(s, 0, &a, 1); if (a.gate && !a.rest) { nt[i] = (int16_t)((a.y + 128) >> 8); fl[i] = (uint8_t)((a.acc ? 1u : 0u) | (a.age >= 65536u ? 2u : 0u)); } }
+            else if (t == 1u) { voice_t v; eval_bio(s, 8000u, &v); if (v.on) { nt[i] = (int16_t)((v.y + 128) >> 8); fl[i] = (uint8_t)(i && nt[i - 1u] >= 0 ? 2u : 0u); } }
+            else if (t == 2u) { voice_t v; eval_kick(s, 0, &v); if (v.on && v.kt == 0u) nt[i] = (int16_t)P.root; }
+            else if (P.terms & T_PERC) {
+                uint32_t h = perc_pat(s);
+                if (h) nt[i] = (int16_t)(P.root + 24);
+                else if (i && (nt[i - 1u] >= 0 || (fl[i - 1u] & 2u)) && P.hPat <= 1u) fl[i] = 2u;   /* a held chord */
+            }
+        }
+        circ(RCX, RCY, RR, FAINT);
+        for (i = 1; i < 16u; i++) if (fl[i] & 2u) arcq(RCX, RCY, RR + 1, step_ang(i - 1u), step_ang(i), 3, col);   /* ties, slides, held notes */
+        for (i = 0; i < 16u; i++) {
+            int32_t x, y, d;
+            if (nt[i] < 0 || (fl[i] & 2u && t != 0u)) {
+                if (nt[i] < 0 && !(fl[i] & 2u)) { ring_pos(i, RR, &x, &y); cv_rect(x - 1, y - 1, 3, 3, INK); }
+                continue;
+            }
+            d = (nt[i] - ref) * 2 / 3; d = d < -10 ? -10 : d > 10 ? 10 : d;
+            ring_pos(i, RR + d, &x, &y);
+            dot(x, y, (fl[i] & 1u) ? 5 : 4, E.playing && i == now ? INK : col);
+        }
+        if (t == 0u) { if (nt[now] >= 0 && E.playing) snote(c, nt[now]); else snote(c, P.root + 12); }
+        else if (t == 1u) scat(c, L_ANIMAL[P.bAnimal % 11u]);
+        else if (t == 2u) scat(c, "KICK");
+        else scat(c, L_HTYPE[P.hType % 7u]);
+    }
+    { int32_t w = text_w(&FONT_S, c); if (w <= 60) tx(RCX - w / 2, RCY - 8, &FONT_S, c, INK, PAPER); else t5(RCX - (int32_t)slen(c) * 3, RCY - 3, c, INK); }
+    if (SG.on) {                                     /* the song's sections: a ribbon along the bottom (its left part) */
+        const sg_song_t *g = sgs();
+        uint32_t k;
+        for (k = 0; k < g->nsec; k++) {
+            int32_t a = 4 + 232 * (g->secBar[k] - 1) / g->nb, b = 4 + 232 * (k + 1u < g->nsec ? g->secBar[k + 1u] - 1 : g->nb) / g->nb;
+            cv_rect(a, 158, b - a - 2, 6, k == SG.sec ? RGB(236, 201, 112) : FAINT);
+        }
+        if (SG.curSb >= 0) cv_rect(4 + 232 * SG.curSb / g->nb, 154, 2, 14, REDC);
+    }
+    draw_readout(0, 70, 214);
+    cv_blit(0, 70);
+}
+
+/* ---- right of the ring: the sound of the track: its wave, and its harmonics under the filter */
+#define SX 134
+static void sim303(float fcRatio, float res, int32_t sq, int32_t y0, int32_t h, uint16_t c)   /* a saw (square) through a 4-pole ladder, 2.5 periods */
+{
+    float y1 = 0, y2 = 0, y3 = 0, y4 = 0, ph = 0, g = 1.0f - f_exp2(-1.442695f * 6.2831853f * fcRatio / 50.0f), k = res * 3.7f, out;
+    int32_t i, py0 = 0, yy;
+    if (g > 0.95f) g = 0.95f;
+    for (i = -200; i < 100; i++) {
+        float x = sq ? (ph < 0.5f ? 0.8f : -0.8f) : 1.0f - 2.0f * ph, u = x - k * y4;
+        if (u > 1.0f) u = 1.0f; else if (u < -1.0f) u = -1.0f;
+        u -= u * u * u / 3.0f;
+        y1 += g * (u - y1); y2 += g * (y1 - y2); y3 += g * (y2 - y3); y4 += g * (y3 - y4);
+        out = y4 * (1.0f + k * 0.5f);
+        ph += 1.0f / 50.0f; if (ph >= 1.0f) ph -= 1.0f;
+        if (i < 2) continue;
+        yy = y0 + h / 2 - (int32_t)(out * (float)h * 0.36f);
+        yy = yy < y0 ? y0 : yy > y0 + h ? y0 + h : yy;
+        if (i > 2) cv_line(i - 1, py0, i, yy, c);
+        py0 = yy;
+    }
+}
+static int32_t fx_log(float f) { return (int32_t)(14.0f * f_log2(f / 40.0f)); }   /* 40 Hz .. 10 kHz over 104 px */
+static void spectrum(float f0, float fc, float res, int32_t y0, int32_t h, uint16_t col, int lp)
+{
+    int32_t base = y0 + h, x, py0 = 0;
+    uint32_t k;
+    float K = res * 3.8f;
+    cv_rect(0, base, 104, 1, INK);
+    for (k = 1; k < 120u; k++) {                     /* the harmonics: 1/k, under the filter */
+        float f = f0 * (float)k, r = f / fc, a, re, im, H;
+        if (f > 10000.0f) break;
+        re = 1.0f - 6.0f * r * r + r * r * r * r + K; im = 4.0f * r - 4.0f * r * r * r;
+        H = lp ? (1.0f + K) / (1.0f + f_exp2(0.5f * f_log2(re * re + im * im + 1e-6f))) : 1.0f;
+        a = H / (float)k; if (a > 1.0f) a = 1.0f;
+        x = fx_log(f);
+        if (x >= 0 && x < 104) cv_rect(x, base - (int32_t)(f_exp2(0.5f * f_log2(a + 1e-6f)) * (float)h * 0.9f), 1, (int32_t)(f_exp2(0.5f * f_log2(a + 1e-6f)) * (float)h * 0.9f), f > fc && lp ? FAINT : INK);
+    }
+    if (!lp) return;
+    for (x = 0; x < 104; x++) {                      /* the filter's curve, its peak at the cutoff */
+        float f = 40.0f * f_exp2((float)x / 14.0f), r = f / fc, re = 1.0f - 6.0f * r * r + r * r * r * r + K, im = 4.0f * r - 4.0f * r * r * r;
+        float H = (1.0f + K) / (1.0f + f_exp2(0.5f * f_log2(re * re + im * im + 1e-6f)));
+        int32_t yy = base - (int32_t)(H * (float)h * 0.42f);
+        yy = yy < y0 ? y0 : yy;
+        if (x) { cv_line(x - 1, py0, x, yy, col); cv_line(x - 1, py0 + 1, x, yy + 1, col); }
+        py0 = yy;
+    }
+    x = fx_log(fc); if (x >= 0 && x < 104) cv_rect(x, y0, 1, h, col);
+}
+static uint8_t drLvl[11]; static uint32_t drLast = 0xFFFFFFFFu;
+static void draw_scope(void)
+{
+    uint32_t t = U.part & 3u, k;
+    cv_begin(106, 170, PAPER);
+    if (t == 0u || (t == 1u && P.bAnimal == 0u)) {  /* ACID (ZOO's ACID B): the 303's wave and its filter */
+        acid_t a; int32_t q8, note; float fc, res;
+        if (t == 0u) {
+            eval_acid(E.s, E.stepPh >> 16, &a, 0);
+            q8 = cutoff_at(&a, E.s, E.stepPh >> 16); res = (float)mv(1, E.s, E.stepPh >> 16) / 127.0f; note = (a.y + 128) >> 8;
+        } else {
+            zoo_t z; zoo_eval(E.s, E.stepPh >> 16, &z);
+            q8 = z.cq ? z.cq : 24 * 256 + P.zCut * 144; res = (float)P.zRes / 127.0f; note = z.o.gate ? (z.o.y + 128) >> 8 : P.root + 12;
+        }
+        fc = hz_of(q8); if (fc < 30.0f) fc = 30.0f;
+        sim303(fc / hz_of(note << 8), res, t == 0u && P.aWave == 1u, 8, 50, INK);
+        spectrum(hz_of(note << 8), fc, res, 66, 70, t == 0u ? REDC : TCOL[1], 1);
+    } else if (t == 1u && P.bAnimal < 7u) {          /* ZOO's call: its pitch (ink) and its mouth (CUTOFF, the track's colour) */
+        const call_t *c = &CALLS[P.bAnimal - 1u];
+        uint32_t x, len = ((uint32_t)c->n << 16) / c->div;
+        int32_t pp = 0, pc = 0;
+        for (x = 0; x < 100u; x++) {
+            acid_t o; int32_t cq, rs, yp, yc;
+            if (!call_shape(c, len / 100u * x, 0, &o, &cq, &rs)) continue;
+            yp = 40 - ((o.y >> 8) * 22) / 12; yp = yp < 6 ? 6 : yp > 58 ? 58 : yp;
+            yc = 58 - ((cq - 40 * 256) * 48) / (60 * 256); yc = yc < 6 ? 6 : yc > 58 ? 58 : yc;
+            if (x) { cv_line((int32_t)x - 1, pp, (int32_t)x, yp, o.gate ? INK : FAINT); cv_line((int32_t)x - 1, pc, (int32_t)x, yc, TCOL[1]); cv_line((int32_t)x - 1, pc + 1, (int32_t)x, yc + 1, TCOL[1]); }
+            pp = yp; pc = yc;
+        }
+        {
+            zoo_t z; float fc;
+            int on = zoo_eval(E.s, E.stepPh >> 16, &z) && z.o.gate;
+            fc = hz_of(on ? z.cq : 24 * 256 + 72 * 144);
+            spectrum(hz_of(on ? (z.o.y + 128) & ~255 : (P.root + 24) << 8), fc, (float)c->res / 127.0f, 66, 70, TCOL[1], 1);
+        }
+    } else if (t == 1u) {                            /* the old animals: their wavetable */
+        uint32_t x; int32_t pp = 0;
+        for (x = 0; x < 100u; x++) {
+            int32_t v = BIO_WT[((P.bAnimal - 7u) & 3u) * 256u + ((x * 256u / 40u) & 255u)], yy = 33 - (v * 22) / 32767;
+            if (x) cv_line((int32_t)x - 1, pp, (int32_t)x, yy, INK);
+            pp = yy;
+        }
+        spectrum(hz_of((P.root + 24) << 8), 3000.0f, 0.3f, 66, 70, TCOL[1], 0);
+    } else if (t == 2u) {                            /* the drums: each row's last hit, fading */
+        uint16_t on[11], ac[11];
+        uint32_t r, st = E.s;
+        if (E.playing && st != drLast) {
+            drLast = st; drum_masks(st, on, ac);
+            for (r = 0; r < 11u; r++) if ((on[r] >> (st & 15u) & 1u) && !(P.drMute >> r & 1u)) drLvl[r] = (ac[r] >> (st & 15u) & 1u) ? 100u : 72u;
+        }
+        for (r = 0; r < 11u; r++) {
+            int32_t y = 8 + (int32_t)r * 12;
+            t5(0, y, drn(r), r == P.drSel ? REDC : INK);
+            cv_rect(16, y + 2, 84, 3, FAINT);
+            if (drLvl[r]) { cv_rect(16, y + 1, (int32_t)drLvl[r] * 84 / 100, 5, TCOL[2]); drLvl[r] = (uint8_t)(drLvl[r] > 6u ? drLvl[r] - 6u : 0u); }
+        }
+        if (!P.kit) t5(0, 140, "KIT: FUNC", INK); else t5(0, 140, "SEQ = GRID", mixc(PAPER, INK, 9));
+    } else {                                         /* KEYS: a few periods of its sound, its partials */
+        uint32_t x; int32_t pp = 0;
+        float b = (float)P.hTone / 127.0f;
+        for (x = 0; x < 100u; x++) {
+            float p = (float)x / 40.0f, v;
+            switch (P.hType) {
+            case KT_PAD: v = fsin(p) + 0.5f * fsin(p * 1.003f + 0.16f) + 0.18f * fsin(2.0f * p) + b * (0.32f * fsin(3.0f * p) + 0.22f * fsin(4.0f * p)); v *= 0.5f; break;
+            case KT_EPIANO: v = fsin(p + 0.16f * (1.0f + 2.2f * b) * fsin(p)) * 0.8f; break;
+            case KT_BELL: v = fsin(p + 0.16f * (1.5f + 4.0f * b) * fsin(3.5f * p)) * 0.8f; break;
+            case KT_PIANO: v = (fsin(p + 0.16f * (0.8f + 2.0f * b) * fsin(p)) + 0.3f * fsin(2.003f * p)) * 0.6f; break;
+            case KT_DRONE: { uint32_t n; v = 0; for (n = 1; n <= 7u; n++) v += fsin((float)n * p) / (float)n; v *= 0.5f; break; }
+            default: v = (1.0f - 2.0f * (p - (float)(int32_t)p)) * (0.4f + 0.4f * b) + 0.2f * fsin(5.0f * p); break;   /* a plucked string, roughly */
+            }
+            { int32_t yy = 33 - (int32_t)(v * 24.0f); yy = yy < 6 ? 6 : yy > 60 ? 60 : yy; if (x) cv_line((int32_t)x - 1, pp, (int32_t)x, yy, INK); pp = yy; }
+        }
+        spectrum(hz_of((P.root + 24) << 8), 200.0f + 4000.0f * b, 0.2f, 66, 70, TCOL[3], 1);
+    }
+    if (SG.on) {                                     /* the ribbon's right part */
+        const sg_song_t *g = sgs();
+        for (k = 0; k < g->nsec; k++) {
+            int32_t a = 4 + 232 * (g->secBar[k] - 1) / g->nb - SX, e = 4 + 232 * (k + 1u < g->nsec ? g->secBar[k + 1u] - 1 : g->nb) / g->nb - SX;
+            cv_rect(a, 158, e - a - 2, 6, k == SG.sec ? RGB(236, 201, 112) : FAINT);
+        }
+        if (SG.curSb >= 0) cv_rect(4 + 232 * SG.curSb / g->nb - SX, 154, 2, 14, REDC);
+    } else
+        for (k = 0; k < 4u; k++) {                   /* the four tracks: which one is selected, which are muted */
+            int32_t x = 4 + (int32_t)k * 25;
+            if (k == U.part) { cv_rect(x - 2, 154, 22, 1, INK); cv_rect(x - 2, 165, 22, 1, INK); cv_rect(x - 2, 154, 1, 12, INK); cv_rect(x + 19, 154, 1, 12, INK); }
+            cv_rect(x, 156, 18, 8, (P.mutes >> k & 1u) || (k == 1u && !(P.terms & T_BIO)) || (k == 3u && !(P.terms & T_PERC)) ? FAINT : TCOL[k]);
+        }
+    draw_readout(SX, 70, 214);
+    cv_blit(SX, 70);
+}
+static void draw_strip(void)                                  /* 178..240 under the grid, the steps, a key map: the tracks */
+{
+    uint32_t k;
+    cv_begin(240, 62, PAPER);
+    cv_rect(0, 1, 240, 1, FAINT);
+    for (k = 0; k < 4u; k++) {
+        int32_t x = 6 + (int32_t)k * 58;
+        uint16_t c = (P.mutes >> k & 1u) || (k == 1u && !(P.terms & T_BIO)) || (k == 3u && !(P.terms & T_PERC)) ? FAINT : TCOL[k];
+        if (k == U.part) cv_rect(x - 3, 10, 56, 30, CREAM);
+        cv_rect(x, 16, 9, 9, c);
+        tx(x + 13, 13, &FONT_S, k == 2u ? (P.kit == 2u ? "808" : P.kit ? "909" : "KICK") : TRK[k], INK, k == U.part ? CREAM : PAPER);
+    }
+    if (SG.on) t5(6, 48, "A SONG: PLAY = YOUR SET", mixc(PAPER, INK, 9));
+    cv_blit(0, 178);
 }
 
 static void draw_drums(void)                                 /* T3 on the 909: every row, each step over its white key */
@@ -2592,8 +2821,8 @@ static void draw_drums(void)                                 /* T3 on the 909: e
             if (j == now) { cv_rect(x, y + 6, 12, 1, INK); }
         }
     }
-    draw_readout();
-    cv_blit(0, 58);
+    draw_readout(0, 70, 140);
+    cv_blit(0, 70);
 }
 static void draw_steps(void)                                 /* SEQ > STEPS: ACID's 16 steps, each over its white key */
 {
@@ -2625,50 +2854,8 @@ static void draw_steps(void)                                 /* SEQ > STEPS: ACI
         }
         prevY = y;
     }
-    draw_readout();
-    cv_blit(0, 58);
-}
-
-static void draw_rows(void)                                  /* 166..240: the four tracks */
-{
-    uint32_t t, k, sNow = E.s, bar0 = sNow & ~15u;
-    cv_begin(240, 74, PAPER);
-    cv_rect(0, 0, 240, 1, mixc(PAPER, INK, 9));
-    for (t = 0; t < 4u; t++) {
-        int32_t y = 2 + (int32_t)t * 18, on = t == 0 || (P.terms & TBIT[t]), muted = P.mutes >> t & 1u, sel = t == U.part;
-        uint16_t bg = sel ? mixc(PAPER, RGB(255, 255, 232), 9) : PAPER, ink = on && !muted ? INK : mixc(PAPER, INK, 6);
-        char nm[16];
-        if (sel) { cv_rect(0, y - 1, 240, 18, bg); cv_rect(0, y - 1, 3, 18, U.rec ? REDC : TCOL[t]); }
-        chip(5, y + 2, t, 0);
-        tx(20, y, &FONT_S, TRK[t], ink, bg);
-        nm[0] = 0;
-        if (muted) scat(nm, "MUTE"); else if (!on) scat(nm, "OFF");
-        else if (SG.on && t == 0u) scat(nm, sgs()->two ? "SONG X2" : "SONG");
-        else { if (laneN[t]) { scat(nm, "*"); sint(nm, laneN[t]); scat(nm, " "); } scat(nm, t == 2u && P.kit ? "DRUMS" : pre_name(t, P.pre[t])); }
-        nm[9] = 0;
-        t5(58, y + 5, nm, mixc(PAPER, INK, on && !muted ? 11 : 5));
-        for (k = 0; k < 16u; k++) {
-            uint32_t s = bar0 + k, x = 116u + k * 5u + (k >> 2) * 2u, h = 0;
-            acid_t a; voice_t v;
-            cv_rect((int32_t)x, y + 15, 4, 1, mixc(PAPER, INK, 4));
-            if (on && !muted) {
-                if (t == 0 && SG.on) {                      /* the song's bar */
-                    uint32_t v = WA.v[16u + k];
-                    if (v != NONE) h = (v & 128u) ? 5u : (WA.f[16u + k] & 1u) ? 12u : 8u;
-                } else if (t == 0 && STEPS) {               /* the steps as written (also when stopped) */
-                    uint32_t i = s % step_len(), v = P.lane[0][i];
-                    if (v != NONE) h = (v & 128u) ? 5u : (accB() >> i & 1u) ? 12u : 8u;
-                } else if (t == 0) { eval_acid(s, 0, &a, 1); if (a.gate) h = a.acc ? 12 : 8; }
-                else if (t == 1) { eval_bio(s, 20000u, &v); if (v.on) h = 4u + (uint32_t)(v.amp >> 12); }
-                else if (t == 2 && P.kit) { uint32_t r, c = 0; uint16_t dm[11], da[11]; drum_masks(s, dm, da); for (r = 0; r < 11u; r++) if (dm[r] >> (s & 15u) & 1u) c++; h = c ? 4u + 3u * (c > 2u ? 2u : c) : 0u; }
-                else if (t == 2) { eval_kick(s, 0, &v); if (v.on && v.kt == 0u) h = 10; }
-                else { uint32_t hp = perc_on(s); h = hp == 2u ? 9u : hp ? 5u : 0u; }
-            }
-            if (h) cv_rect((int32_t)x, y + 15 - (int32_t)h, 4, (int32_t)h, s == sNow && E.playing ? REDC : TCOL[t]);
-            if (s == sNow && E.playing) cv_rect((int32_t)x, y + 16, 4, 1, U.rec ? REDC : INK);
-        }
-    }
-    cv_blit(0, 166);
+    draw_readout(0, 70, 140);
+    cv_blit(0, 70);
 }
 
 static void vlabel(int32_t x, int32_t y, const char *l, uint32_t max, uint16_t c)   /* one letter under the other, as JIANT does */
@@ -2701,8 +2888,8 @@ static void draw_keymap(void)                                /* holding a button
             vlabel(x + 4, 19, l, 4, on ? LIME : INK);
         } else w++;
     }
-    if (U.held == BTN_SAVE) draw_readout();                  /* "LET GO: SAVE TO U3" */
-    cv_blit(0, 58);
+    if (U.held == BTN_SAVE) draw_readout(0, 70, 140);             /* "LET GO: SAVE TO U3" */
+    cv_blit(0, 70);
 }
 
 /* ================================================================ the main loop */
@@ -2835,9 +3022,10 @@ static void app_main(void)
         if (fm1_ms - lastFrame >= 33u) {
             lastFrame = fm1_ms;
             int fxShow = U.held == BTN_FX && (fxBufKey >= 0 || X.flags || fxFn || riseStart >= 0 || fxThrow);
-            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u && !fxShow) draw_keymap();
-            else if (U.group == G_DRUM && !fxShow) draw_drums(); else if (steps_page() && !fxShow) draw_steps(); else draw_graph();
-            draw_rows();
+            if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u && !fxShow) { draw_keymap(); draw_strip(); }
+            else if (U.group == G_DRUM && !fxShow) { draw_drums(); draw_strip(); }
+            else if (steps_page() && !fxShow) { draw_steps(); draw_strip(); }
+            else { draw_ring(); draw_scope(); }
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
         }
         if (SG.on && SG.ended) {

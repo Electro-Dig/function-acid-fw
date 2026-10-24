@@ -16,6 +16,17 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.44', '2026-10-24',
+     ['新界面：换成 Acid 视频的视觉。暖白底、一种墨线，每条轨一个颜色（ACID 玫红、ZOO 青绿、鼓 钴蓝、KEYS 墨蓝）',
+      '上面是四个圆旋钮，读数直接写在下面（CUTOFF 显示 Hz）；正在拧的那个变红',
+      '中间是当前轨的转盘：一圈 16 步，指针扫过当前这一步，音越高点越往外，重音点更大，连音 / 滑音 / 按住的和弦是一段弧。切轨道，转盘就换成那条轨。鼓是三圈：里圈底鼓，中圈军鼓 / 拍手 / 通鼓，外圈镲',
+      '右边是这条轨的声音：上面波形（ACID 是按当前 CUTOFF / RESO 算出来的 303 波形，ZOO 是叫声的音高和嘴型），下面是谐波和滤波曲线',
+      '去掉了下面四排轨道条；右下四个小色块表示选的是哪条轨、哪条静音了。放曲子时底部是一条段落带'],
+     ['A new screen in the look of the Acid films: warm paper, one ink, a colour per track (ACID rose, ZOO teal, drums cobalt, KEYS ink blue)',
+      'Four round knobs on top with their values under them (CUTOFF in Hz); the one being turned goes red',
+      'In the middle, the selected track as a ring: 16 steps round, the pointer sweeping, higher notes further out, accents bigger, ties / slides / held chords as arcs. Change track and the ring changes. Drums: three rings, kick in, snares, hats out',
+      'Right of it, the sound of the track: its wave (ACID: a 303 wave computed from the CUTOFF and RESO now; ZOO: the pitch and mouth of the call) over its harmonics and the filter curve',
+      'The four track rows are gone; four small chips show the selected and the muted tracks. A song shows its sections along the bottom']),
     ('0.43', '2026-10-24',
      ['修 REC + 白键 1（CLR）在第 2 轨 ZOO、第 4 轨 KEYS 上好像清不掉：这两条轨没有音符时会自己弹（ZOO 按自己的节拍叫，KEYS 按 RHYTHM 弹和弦），清完立刻又自己弹起来。现在清完这条轨就安静；要它自己弹，拧 PRESETS 选个预设或弹一下琴键。REC + 白键 2（ALL）也一样'],
      ['Fixed REC + white key 1 (CLR) seeming not to clear T2 ZOO or T4 KEYS: with no notes they play on their own (ZOO calls on its clock, KEYS plays its RHYTHM), so they started again at once. Cleared, the track is now quiet; a preset or a key wakes it. The same for REC + white key 2 (ALL)']),
