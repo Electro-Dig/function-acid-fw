@@ -1,4 +1,5 @@
 # FN ACID 0.3 host test: the film (HOME + white key 10), 8 bars, then stop: the delay and the room ring out
+50 btn 12
 100 hold 8
 300 keys 0x10000
 400 keys 0

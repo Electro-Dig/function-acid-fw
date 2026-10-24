@@ -1,0 +1,11 @@
+# 0.39: the boot demo (CHICAGO on the host), skip a section (OCT+), loop it (REC), take CUTOFF (KNOB1), PLAY = your own set
+3000 shot
+8000 btn 1
+16000 shot
+17000 btn 13
+22000 enc 2 6
+22500 shot
+30000 btn 13
+34000 btn 12
+35000 shot
+45000 end

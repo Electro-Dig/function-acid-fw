@@ -1,0 +1,5 @@
+# 0.39: a whole song (the boot demo's CHICAGO, 97 bars at 122): at its end the demo goes on to MINIMAL
+100000 shot
+195000 shot
+200000 btn 12
+210000 end

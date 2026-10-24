@@ -1,5 +1,6 @@
 # FN ACID 0.2 host test: the blank start, the film's line (HOME + white key 10) with its delay, editing a step on
 # SEQ > STEPS (hold white key 3, KNOB1 note, KNOB3 accent), OCT+ new steps, and REC while stopped (keys fill the steps)
+50 btn 12
 100 btn 12
 2500 shot
 3100 hold 8

@@ -1,0 +1,33 @@
+# 0.39: HOME held + white keys 1-6: 20 s of each song, then PLAY = your own set
+1000 hold 8
+1100 keys 0x10
+1200 keys 0
+1300 release 8
+15000 shot
+21000 hold 8
+21100 keys 0x4
+21200 keys 0
+21300 release 8
+35000 shot
+41000 hold 8
+41100 keys 0x40
+41200 keys 0
+41300 release 8
+55000 shot
+61000 hold 8
+61100 keys 0x80
+61200 keys 0
+61300 release 8
+75000 shot
+81000 hold 8
+81100 keys 0x200
+81200 keys 0
+81300 release 8
+95000 shot
+101000 hold 8
+101100 keys 0x1
+101200 keys 0
+101300 release 8
+115000 shot
+121000 btn 12
+135000 end

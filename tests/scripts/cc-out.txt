@@ -1,0 +1,19 @@
+# FN ACID 0.38 host test: MIDI page NOTES ON (as midi-out.txt), back HOME, HOME KNOB1 CUTOFF + KNOB2 RESO while stopped, play 1 s turning KNOB3 ENV, stop; expect B0 74 / 71 / 77 changes and the 2 s refresh
+50 btn 12
+100 hold 8
+300 keys 0x10000
+400 keys 0
+500 release 8
+600 btn 7
+700 btn 7
+800 btn 7
+900 enc 2 1
+1000 enc 3 1
+1100 enc 1 2
+1200 btn 8
+1400 enc 2 6
+1500 enc 3 -4
+1700 btn 12
+2000 enc 4 3
+2700 btn 12
+3600 end

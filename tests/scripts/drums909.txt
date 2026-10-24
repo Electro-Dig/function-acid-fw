@@ -1,5 +1,6 @@
 # FN ACID 0.35 host test: FILM, T3 -> KIT 909, SEQ = the drum page; pick OH (black key 9) and add steps,
 # accent a BD step, turn SD's tune; then play the kit for a while
+50 btn 12
 100 hold 8
 300 keys 0x10000
 400 keys 0

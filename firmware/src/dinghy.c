@@ -14,13 +14,14 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.37"
+#define APP_VER "0.39"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
 #include "acid_tables.h"
 /* T3's 909 kit: X0X's port of 9W9 / ER-99 (GPL-3.0), unchanged, in this one unit (float: the FPU, checked in 0.34) */
 #include "dsp/drum909.c"
+#include "songs8.h"                              /* 0.39: the eight acid songs (tools/export_songs.mjs) */
 #undef LIN
 #undef EXP
 #undef DRIVE
@@ -62,6 +63,8 @@ typedef struct {
     uint8_t drPot[11][4];                        /* KNOB1-4 of each row: TUNE, DECAY, LEVEL, one more (see KN9) */
     /* 0.36: USB-MIDI */
     uint8_t mClk, mNote, mCh;                    /* clock OFF / OUT / IN; notes out OFF / ON; ACID's channel - 1 (BIO next, drums on 10) */
+    /* 0.39 */
+    uint8_t bootDemo, demoSong;                  /* at power-on: play a song (until STOP); which: 0 = any, 1-8 */
 } params_t;
 static params_t P;
 /* what is kept in flash: the current state and 6 slots (SAVE held: white keys 1-6) */
@@ -173,6 +176,7 @@ static void defaults(void)
     P.dTime = 2; P.dFb = 54; P.dMix = 60; P.dTone = 64;       /* the film's echo: dotted eighth, 42 %, darker each time */
     P.rMix = 40;                                               /* and its small room */
     P.laneMode[2] = P.laneMode[3] = 1; P.keyLock = 1; P.magic = MAGIC;
+    P.bootDemo = 1; P.demoSong = 0;
     for (t = 0; t < 4u; t++) for (i = 0; i < LANE; i++) P.lane[t][i] = NONE;
     for (t = 0; t < 4u; t++) apply_preset(t, 0);
     apply_chapter(0);
@@ -381,11 +385,115 @@ static void eval_steps(uint32_t s, uint32_t p16, acid_t *o)
     o->y += acid_mods(s, p16);
 }
 
+/* ================================================================ 0.39: song mode
+ * The eight songs of acid-8-tracks (tools/songs/songs8.js): each bar's 303 line(s), 909 rows and the knob lanes come from
+ * firmware/gen/songs8.h. A song plays from INTRO to OUTRO; the player turns the knobs as the song was written (HAND),
+ * until a knob is turned on the device: then that knob is yours until the next section. STOP = back to your own set. */
+typedef struct { uint8_t v[48], f[48]; } win_t;      /* 3 bars of a 303 line (the bar before, this one, the next), lane-style */
+static win_t WA, WB;
+static volatile uint32_t wBase;                      /* the E step at WA.v[0] */
+static params_t PB;                                  /* your own set, kept while a song plays */
+static struct {
+    volatile uint8_t on, ended, loop, demo;
+    uint8_t song, own, sec, gapNext;
+    int32_t off; volatile int32_t jump;              /* song bar = E bar + off; a jump (song bar) waits for the next bar */
+    uint32_t curEb; int32_t curSb;                   /* the E bar whose song bar was decided last, and that song bar */
+    int32_t k[4];                                    /* the lanes' CUTOFF RESO ENV DECAY, in the knobs' units */
+    int32_t bq8, bres, benv, bdec, gain;             /* the second 303's cutoff (Q8 MIDI), res, env, decay ms; output gain Q15 */
+    float dhpA, rise;                                /* the drums' high-pass, the riser 0..1 */
+} SG = {.curEb = 0xFFFFFFFFu, .jump = -1, .gain = 32767};
+static struct { uint32_t ph, inc; int32_t amp, ampT, y1, y2, y3, y4, g, kq, drv; uint32_t ctr; } V2;   /* the second 303 */
+static struct { float lp, bp; uint32_t n; } RZ;                                                         /* the riser's noise */
+static float dhpX, dhpY;
+static void drum_masks(uint32_t s, uint16_t *on, uint16_t *ac);
+static inline const sg_song_t *sgs(void) { return &SONGS[SG.song % SG_N]; }
+static void win_fill(win_t *w, uint32_t voice, int32_t sb)        /* sb: the song bar (0-based) at w's middle */
+{
+    uint32_t k, j;
+    const sg_song_t *g = sgs();
+    for (k = 0; k < 3u; k++) {
+        int32_t b = sb - 1 + (int32_t)k;
+        uint32_t idx = b >= 0 && b < (int32_t)g->nb ? SG_BARS[((uint32_t)g->first + (uint32_t)b) * 3u + voice] : 0xFFFFu;
+        for (j = 0; j < 16u; j++) {
+            uint32_t i = k * 16u + j;
+            if (idx == 0xFFFFu) { w->v[i] = NONE; w->f[i] = 0; continue; }
+            {
+                int32_t n = SG_ACID[idx * 32u + j * 2u]; uint32_t f = (uint8_t)SG_ACID[idx * 32u + j * 2u + 1u];
+                w->v[i] = (f & 4u) ? NONE : (uint8_t)((33 + n) | ((f & 8u) ? 128 : 0));
+                w->f[i] = (uint8_t)(f & 19u);
+            }
+        }
+    }
+}
+static int32_t sg_sec_of(int32_t sb)                 /* the section (index) of song bar sb (0-based) */
+{
+    const sg_song_t *g = sgs(); int32_t i, r = 0;
+    for (i = 0; i < g->nsec; i++) if (sb + 1 >= g->secBar[i]) r = i;
+    return r;
+}
+static int32_t sg_map(uint32_t eb)                   /* the song bar of E bar eb; at a new bar: jumps, loops, the end (ISR only) */
+{
+    const sg_song_t *g = sgs();
+    int32_t sb;
+    if (eb == SG.curEb) return SG.curSb;
+    sb = (int32_t)eb + SG.off;
+    if (SG.jump >= 0) { sb = SG.jump; SG.jump = -1; }
+    else if (SG.loop && SG.curSb >= 0) {                                    /* LOOP: at the section's end, back to its start */
+        int32_t sc = sg_sec_of(SG.curSb), end = sc + 1 < g->nsec ? g->secBar[sc + 1] - 1 : (int32_t)g->nb - 1;
+        if (sb >= end) sb = g->secBar[sc] - 1;
+    }
+    SG.off = sb - (int32_t)eb;
+    if (sb >= (int32_t)g->nb) { SG.ended = 1; sb = (int32_t)g->nb - 1; }
+    if (sg_sec_of(sb) != SG.sec) { SG.sec = (uint8_t)sg_sec_of(sb); SG.own = 0; }   /* a new section: the lanes take the knobs back */
+    {
+        uint32_t i; SG.gapNext = 0;
+        for (i = 0; i < g->ngap; i++) if (g->gap[i] == sb + 2) SG.gapNext = 1;       /* the bar before a gap bar: its last 16th is silent */
+    }
+    SG.curEb = eb; SG.curSb = sb;
+    wBase = eb * 16u - 16u;
+    win_fill(&WA, 0, sb); win_fill(&WB, 1, sb);
+    return sb;
+}
+static int win_leg(const win_t *w, uint32_t i)
+{
+    uint32_t v = w->v[i], pv = w->v[i - 1u];
+    if (v == NONE || pv == NONE) return 0;
+    return (v & 128u) || (w->f[i - 1u] & 2u);
+}
+static int32_t win_note(const win_t *w, uint32_t i)
+{
+    for (;; i--) { uint32_t v = w->v[i]; if (v != NONE && !(v & 128u)) return (int32_t)v; if (!i) return 33; }
+}
+static void eval_win(const win_t *w, uint32_t s, uint32_t p16, acid_t *o, int32_t tr, uint32_t gate)
+{
+    int32_t rel = (int32_t)s - (int32_t)wBase, n;
+    uint32_t i, k, v, nv;
+    o->acc = o->slide = o->rest = 0; o->gate = 0; o->age = 0x7FFFFFFFu; o->y = (33 + tr) << 8;
+    if (!run || rel < 1 || rel > 46) { o->rest = 1; return; }
+    i = (uint32_t)rel; v = w->v[i]; nv = w->v[i + 1u];
+    n = win_note(w, i); o->y = (n + tr) << 8;
+    if (v == NONE) { o->rest = 1; return; }
+    for (k = 0; k + 1u < i && win_leg(w, i - k); k++) { }
+    o->age = (k << 16) + p16;
+    o->acc = (uint8_t)(w->f[i - k] & 1u);
+    if (!(v & 128u) && win_leg(w, i)) {
+        int32_t pn = win_note(w, i - 1u);
+        uint32_t x = p16 * (15000u / P.bpm) / (256u * 22u);
+        o->y += (((pn - n) << 8) * expneg((int32_t)(x > 2047u ? 2047u : x))) >> 15;
+    }
+    o->slide = (uint8_t)((w->f[i] & 2u) && nv != NONE);
+    if ((w->f[i] & 16u) && k == 0u) {                                       /* two hits in the step */
+        if (p16 >= 32768u) o->age = p16 - 32768u;
+        o->gate = p16 < 27525u || (p16 >= 32768u && p16 < 60293u);
+    } else o->gate = o->slide || (nv != NONE && (nv & 128u)) || p16 < gate * 655u;
+}
+
 static void eval_acid0(uint32_t s, uint32_t p16, acid_t *o, int noglide)
 {
     uint32_t t = P.terms, N = P.N, i = (s + P.off) % N, c = ((s + 32u) / N) >> P.arpSpd;
     int32_t base = P.root, y, laneRest = 0, legato = 0;
     trig_t tg;
+    if (SG.on) { int32_t tr = P.sTrans; if (live[0] >= 0 && !recNow && run) tr += live[0] - P.root; eval_win(&WA, s, p16, o, tr, P.aGate); return; }
     if (STEPS) { eval_steps(s, p16, o); return; }
     if (live[0] >= 0 && (P.laneMode[0] == 1 || !run)) { base = live[0]; legato = 1; }
     else if (liveN[0] >= 0 && P.laneMode[0] == 0 && run && !laneN[0]) base = liveN[0];   /* FOLLOW: a key = transpose */
@@ -441,6 +549,7 @@ static uint8_t motAny;                                                   /* bit 
 static int32_t mv(uint32_t m, uint32_t s, uint32_t p16)                  /* the value now: the lane's, or the knob's */
 {
     uint32_t i = s & 63u, a = P.mot[m][i], b;
+    if (SG.on && !(SG.own >> m & 1u)) return SG.k[m];
     if (a == 255u || !run || fm1_ms - motTouch[m] < 500u) return ((const uint8_t *)&P)[MOT_OFF[m]];
     b = P.mot[m][(i + 1u) & 63u];
     if (b == 255u) b = a;
@@ -464,7 +573,7 @@ static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
     if (P.lDep && P.lDest == 0) base += ((lfo_at(s, p16) * P.lDep) >> 15) * 6144 / 127;
     {   /* the filter envelope runs from the attack (over ties and slides); on the steps an accent closes fast, as on a 303 */
         uint32_t a = o->age > (24u << 16) ? (24u << 16) : o->age, x;
-        if (STEPS) {                                     /* e^(-t / tau): kk = 64 / tau in steps; an accent: 200 ms */
+        if (STEPS || SG.on) {                            /* e^(-t / tau): kk = 64 / tau in steps; an accent: 200 ms */
             uint32_t kk = 960000u / ((o->acc ? 200u : tau_ms((uint32_t)mv(3, s, p16))) * P.bpm);
             x = (a * (kk ? kk : 1u)) >> 14;
         } else x = (a * (2u + ((127u - (uint32_t)mv(3, s, p16)) >> 4))) >> 8;
@@ -722,8 +831,10 @@ static void midi_step(uint32_t s)                           /* the notes that st
     if (!(P.mutes & 4u)) {                                 /* T3 */
         if (P.kit) {
             uint32_t v, j = s & 15u;
-            for (v = 0; v < 11u; v++) if ((P.drRow[v] >> j & 1u) && !(P.drMute >> v & 1u)) {
-                mn_on(9, GM9[v], (P.drAcc[v] >> j & 1u) ? 120u : 90u); mDrumOff |= 1u << (GM9[v] - 35u);
+            uint16_t on[11], ac[11];
+            drum_masks(s, on, ac);
+            for (v = 0; v < 11u; v++) if ((on[v] >> j & 1u) && !(P.drMute >> v & 1u)) {
+                mn_on(9, GM9[v], (ac[v] >> j & 1u) ? 120u : 90u); mDrumOff |= 1u << (GM9[v] - 35u);
             }
         } else { voice_t k; eval_kick(s, 0, &k); if (k.on && k.kt == 0u) { mn_on(9, 36, 100); mDrumOff |= 1u << 1; } }
     }
@@ -731,6 +842,7 @@ static void midi_step(uint32_t s)                           /* the notes that st
 }
 static void on_step(void)
 {
+    if (SG.on && E.playing) sg_map(E.s >> 4);
     midi_step(E.s);
     if (E.playing && (E.s & 15u) == 0u && E.s > 0u && P.autoSong && !STEPS) {
         E.chBar++;
@@ -740,12 +852,94 @@ static void on_step(void)
     if (E.playing) perc_hit(perc_on(E.s));
     if (X.req && X.req != X.mode) punch_start();
 }
+/* 0.38: the four ACID knobs out as CC on ACID's channel (NOTES = ON): CUTOFF 74, RESO 71, ENV 77, DECAY 75.
+ * The value heard (the knob, or its motion lane), checked every 64 control ticks (~23 ms), sent when it changes,
+ * and all four again every ~2 s for a page that connects late */
+static uint8_t ccLast[4] = {255u, 255u, 255u, 255u};
+static uint32_t ccDiv, ccRef;
+static void cc_out(uint32_t s, uint32_t p16)
+{
+    static const uint8_t CCN[4] = {74u, 71u, 77u, 75u};
+    uint32_t m;
+    if (!P.mNote || ++ccDiv < 64u) return;
+    ccDiv = 0;
+    if (++ccRef >= 90u) { ccRef = 0; for (m = 0; m < 4u; m++) ccLast[m] = 255u; }
+    for (m = 0; m < 4u; m++) {
+        int32_t v = mv(m, s, p16);
+        v = v < 0 ? 0 : v > 127 ? 127 : v;
+        if ((uint32_t)v != ccLast[m]) { ccLast[m] = (uint8_t)v; mq_push(0xB0u | (P.mCh & 15u), CCN[m], (uint32_t)v); }
+    }
+}
+/* float helpers (the FPU; no libm) */
+static float f_log2(float x) { union { float f; uint32_t i; } u = {x}; float e = (float)((int32_t)((u.i >> 23) & 255u) - 128); u.i = (u.i & 0x007FFFFFu) | 0x3F800000u; return e + (-0.34484843f * u.f + 2.02466578f) * u.f - 0.67487759f; }
+static float f_exp2(float x) { float xi = (float)(int32_t)(x < 0 ? x - 1.0f : x), f = x - xi; union { float f; uint32_t i; } u; u.i = (uint32_t)((int32_t)xi + 127) << 23; return u.f * (1.0f + f * (0.6565f + f * 0.3435f)); }
+static int32_t hz_q8(int32_t hz) { return 69 * 256 + (int32_t)(3072.0f * f_log2((float)(hz < 20 ? 20 : hz) / 440.0f)); }
+static int32_t sg_lane(uint32_t l, uint32_t x64, int lg)           /* lane l of the song at x64 (1/64 bars); lg: interpolate in octaves */
+{
+    const sg_lane_t *L = &sgs()->lane[l];
+    uint32_t lo = 0, hi = L->n - 1u, k0, k1; int32_t v0, v1, p0, p1;
+    if (!L->n) return 0;
+    if (L->n == 1u || x64 <= (SG_KF[L->off] >> 16)) { v0 = (int16_t)(SG_KF[L->off] & 0xFFFFu); return lg ? hz_q8(v0) : v0; }
+    if (x64 >= (SG_KF[L->off + hi] >> 16)) { v0 = (int16_t)(SG_KF[L->off + hi] & 0xFFFFu); return lg ? hz_q8(v0) : v0; }
+    while (hi - lo > 1u) { uint32_t m = (lo + hi) >> 1; if ((SG_KF[L->off + m] >> 16) <= x64) lo = m; else hi = m; }
+    k0 = SG_KF[L->off + lo]; k1 = SG_KF[L->off + hi];
+    p0 = (int32_t)(k0 >> 16); p1 = (int32_t)(k1 >> 16); v0 = (int16_t)(k0 & 0xFFFFu); v1 = (int16_t)(k1 & 0xFFFFu);
+    if (lg) { int32_t q0 = hz_q8(v0), q1 = hz_q8(v1); return q0 + (q1 - q0) * ((int32_t)x64 - p0) / (p1 - p0 ? p1 - p0 : 1); }   /* Q8 MIDI */
+    return v0 + (v1 - v0) * ((int32_t)x64 - p0) / (p1 - p0 ? p1 - p0 : 1);
+}
+static int32_t dec_units(int32_t ms)                 /* a decay in ms -> the DECAY knob (inverse of tau_ms) */
+{
+    int32_t d;
+    for (d = 0; d < 127; d++) if ((int32_t)tau_ms((uint32_t)d + 1u) > ms) return d;
+    return 127;
+}
+static void sg_lanes(uint32_t s, uint32_t p16)       /* the song's knobs, ~700 times a second */
+{
+    const sg_song_t *g = sgs();
+    int32_t sb = (s >> 4) == SG.curEb ? SG.curSb : (int32_t)(s >> 4) + SG.off, v;
+    uint32_t x = (uint32_t)(sb < 0 ? 0 : sb) * 64u + (s & 15u) * 4u + (p16 >> 14), i;
+    v = ((sg_lane(SL_CUT, x, 1) - 24 * 256) * 128 / 72) >> 8; SG.k[0] = v < 0 ? 0 : v > 180 ? 180 : v;   /* past 127: the songs open to 8 kHz */
+    v = sg_lane(SL_RES, x, 0) * 120 / 1000; SG.k[1] = v < 0 ? 0 : v > 120 ? 120 : v;
+    v = sg_lane(SL_ENV, x, 0) * 115 / 1000; SG.k[2] = v < 0 ? 0 : v > 127 ? 127 : v;
+    SG.k[3] = dec_units(sg_lane(SL_DEC, x, 0));
+    v = sg_lane(SL_ACC, x, 0) * 127 / 1000; P.aAcc = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    v = (sg_lane(SL_DRV, x, 0) * 16 / 100 - 12) * 4; P.aDrive = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    v = sg_lane(SL_WAVE, x, 0); P.aWave = (uint8_t)(v >= 750 ? 1 : v >= 150 ? 3 : 0);
+    v = sg_lane(SL_DLY, x, 0) * 256 / 1000; P.dMix = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    v = sg_lane(SL_FB, x, 0) * 128 / 1000; P.dFb = (uint8_t)(v < 0 ? 0 : v > 110 ? 110 : v);
+    v = sg_lane(SL_VERB, x, 0) * 260 / 1000; P.rMix = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    SG.gain = (int32_t)(32767.0f * f_exp2((float)sg_lane(SL_LVL, x, 0) * 0.016609640f));   /* dB/10 -> gain */
+    if (SG.gain > 36000) SG.gain = 36000;
+    v = sg_lane(SL_DHP, x, 0); SG.dhpA = v > 25 ? 1.0f - 6.2831853f * (float)v / 44100.0f : 1.0f;
+    SG.bq8 = sg_lane(SL_BCUT, x, 1); SG.bres = sg_lane(SL_BRES, x, 0); SG.benv = sg_lane(SL_BENV, x, 0); SG.bdec = sg_lane(SL_BDEC, x, 0);
+    SG.rise = 0.0f;
+    for (i = 0; i < g->nris; i++) {
+        int32_t a = (int32_t)(g->ris[i][0] - 1u) * 64, l = (int32_t)g->ris[i][1] * 64;
+        if ((int32_t)x >= a && (int32_t)x < a + l) SG.rise = (float)((int32_t)x - a) / (float)l;
+    }
+}
 static void control(void)
 {
     uint32_t s = E.s, p16 = E.stepPh >> 16, base;
     acid_t oA; voice_t oB, oK;
     int32_t fcq;
+    cc_out(s, p16);
+    if (SG.on && (E.ctr & 63u) == 0u) sg_lanes(s, p16);
     eval_acid(s, p16, &oA, 0); eval_bio(s, p16, &oB); eval_kick(s, p16, &oK);
+    if (SG.on && sgs()->two) {   /* the second 303: its own line, cutoff, resonance, envelope; panned right, more into the delay */
+        acid_t o2; int32_t fc, e, kk, a;
+        eval_win(&WB, s, p16, &o2, P.sTrans, 50);
+        V2.inc = inc_q8(o2.y);
+        V2.ampT = (!o2.gate || (P.mutes & 1u)) ? 0 : ((((o2.acc ? 30000 : 24000) * 92) >> 7) * E.duck) >> 15;
+        a = (int32_t)(o2.age > (24u << 16) ? (24u << 16) : o2.age);
+        kk = (int32_t)(960000u / ((uint32_t)(o2.acc ? 200 : (SG.bdec > 50 ? SG.bdec : 50)) * P.bpm));
+        e = expneg((int32_t)(((uint32_t)a * (uint32_t)(kk ? kk : 1)) >> 14 > 4095u ? 4095u : ((uint32_t)a * (uint32_t)(kk ? kk : 1)) >> 14));
+        fc = SG.bq8 + ((((SG.benv * 43 * 256) / 1000) * e) >> 15) + (o2.acc ? 6 * 256 : 0);
+        fc = (int32_t)(inc_q8(fc) / 20861u);
+        V2.g = 32767 - expneg((fc < 40000 ? fc : 40000) >> 7);
+        V2.kq = SG.bres * 15 / 4;                               /* res 0..1000 -> Q12 0..3.7 */
+        V2.drv = 33;
+    }
     if (P.mNote && E.playing) {
         if (mNoteA >= 0 && !oA.gate) { mn_off(P.mCh & 15u, (uint32_t)mNoteA); mNoteA = -1; }
         if (oB.on && mNoteB < 0 && !(P.mutes & 2u)) { int32_t nb = (oB.y + 128) >> 8; mNoteB = (int16_t)(nb < 0 ? 0 : nb > 127 ? 127 : nb); mn_on((P.mCh + 1u) & 15u, (uint32_t)mNoteB, 90); }
@@ -801,13 +995,28 @@ static void drum_apply(void)                                /* between blocks: t
     m = drAud; drAud = 0;
     for (v = 0; v < 11u; v++) if (m >> v & 1u) { drum909_trigger(&D9, (int)v, 1.0f); if (v == 0u) duckEnv = 32767; }
 }
+static void drum_masks(uint32_t s, uint16_t *on, uint16_t *ac)   /* the 11 rows' steps for the bar of step s */
+{
+    uint32_t v;
+    if (SG.on) {
+        int32_t sb = (s >> 4) == SG.curEb ? SG.curSb : (int32_t)(s >> 4) + SG.off;
+        const sg_song_t *g = sgs();
+        uint32_t idx = sb >= 0 && sb < (int32_t)g->nb ? SG_BARS[((uint32_t)g->first + (uint32_t)sb) * 3u + 2u] : 0xFFFFu;
+        for (v = 0; v < 11u; v++) { on[v] = idx == 0xFFFFu ? 0 : SG_DRUM[idx * 22u + v * 2u]; ac[v] = idx == 0xFFFFu ? 0 : SG_DRUM[idx * 22u + v * 2u + 1u]; }
+        return;
+    }
+    for (v = 0; v < 11u; v++) { on[v] = P.drRow[v]; ac[v] = P.drAcc[v]; }
+}
 static void drum_step(uint32_t s)                           /* the hits of step s */
 {
     uint32_t v, j = s & 15u;
+    uint16_t on[11], ac[11];
+    if (SG.on) sg_map(s >> 4);
     if (P.mutes & 4u) return;
+    drum_masks(s, on, ac);
     for (v = 0; v < 11u; v++)
-        if ((P.drRow[v] >> j & 1u) && !(P.drMute >> v & 1u)) {
-            drum909_trigger(&D9, (int)v, (P.drAcc[v] >> j & 1u) ? 1.0f : 88.0f / 127.0f);   /* as X0X: a plain hit ~3 dB under */
+        if ((on[v] >> j & 1u) && !(P.drMute >> v & 1u)) {
+            drum909_trigger(&D9, (int)v, (ac[v] >> j & 1u) ? 1.0f : 88.0f / 127.0f);   /* as X0X: a plain hit ~3 dB under */
             if (v == 0u) duckEnv = 32767;
         }
 }
@@ -830,6 +1039,7 @@ static void app_audio(int32_t *out, uint32_t n)
     if (E.startReq) {
         E.startReq = 0; E.s = 0; E.stepPh = 0; E.chBar = 0; E.playing = 1; run = 1; E.tick = 0;
         if (P.autoSong) { apply_chapter(0); riseStart = -1; }
+        if (SG.on) { SG.curEb = 0xFFFFFFFFu; SG.curSb = -1; SG.sec = 255; sg_map(0); sg_lanes(0, 0); }
         if (P.mClk == 1u) { mq_push(0xFAu, 0, 0); mq_push(0xF8u, 0, 0); }
         control(); started = 1; midi_step(0);
     }
@@ -848,9 +1058,10 @@ static void app_audio(int32_t *out, uint32_t n)
                 }
         }
         if (n > pos) drum909_render(&D9, drBuf + pos, 0, 0, (int)(n - pos));
+        if (SG.on && SG.dhpA < 0.9999f) for (k = 0; k < n; k++) { float x = drBuf[k]; dhpY = SG.dhpA * (dhpY + x - dhpX); dhpX = x; drBuf[k] = dhpY; }   /* the drums thinned out (a build) */
     }
     for (i = 0; i < n; i++) {
-        int32_t mix = 0, wet = 0, dl, dr, md, l, r, rv = 0;
+        int32_t mix = 0, wet = 0, dl, dr, md, l, r, rv = 0, b2 = 0;
         uint32_t ns;
         if ((E.ctr++ & 15u) == 0u) control();
         {   /* the step clock (and, CLOCK = OUT, 24 MIDI ticks a beat) */
@@ -905,6 +1116,25 @@ static void app_audio(int32_t *out, uint32_t n)
                 if (E.lp > 60000) E.lp = 60000; else if (E.lp < -60000) E.lp = -60000;
             }
             if (E.aAmp > 8) { int32_t a = (sat((E.lp * E.aDrv) >> 4) * E.aAmp) >> 15; mix += a; wet += a; }
+        }
+        if (SG.on && sgs()->two) {   /* the second 303: a saw into the same kind of ladder */
+            int32_t src = (int32_t)(V2.ph >> 16) - 32768, u, u3, b;
+            V2.ph += V2.inc; V2.amp += (V2.ampT - V2.amp) >> 6;
+            if (V2.amp > 8) {
+                u = (src >> 1) - ((V2.kq * V2.y4) >> 12);
+                if (u > 32767) u = 32767; else if (u < -32767) u = -32767;
+                u3 = (((u * u) >> 15) * u) >> 15; u -= u3 / 3;
+                V2.y1 += (V2.g * (u - V2.y1)) >> 15; V2.y2 += (V2.g * (V2.y1 - V2.y2)) >> 15;
+                V2.y3 += (V2.g * (V2.y2 - V2.y3)) >> 15; V2.y4 += (V2.g * (V2.y3 - V2.y4)) >> 15;
+                b = (sat(((V2.y4 + ((V2.y4 * V2.kq) >> 13)) * V2.drv) >> 4) * V2.amp) >> 15;
+                b2 = b; wet += (b * (int32_t)sgs()->bdly) / 100;
+            }
+        }
+        if (SG.on && SG.rise > 0.0f) {   /* the riser: noise through a band-pass sweeping up */
+            float fc = 600.0f * f_exp2(SG.rise * 3.9069f), f = 6.2831853f * fc / 44100.0f, x;
+            RZ.n = RZ.n * 1664525u + 1013904223u; x = (float)(int32_t)RZ.n * (1.0f / 2147483648.0f);
+            RZ.lp += f * RZ.bp; RZ.bp += f * (x - RZ.lp - 0.45f * RZ.bp);
+            mix += (int32_t)(RZ.bp * 0.16f * SG.rise * SG.rise * 30000.0f);
         }
         /* T2 BIO: the animal's wavetable, a little noise, a one-pole low-pass */
         E.bPh += E.bInc;
@@ -961,7 +1191,11 @@ static void app_audio(int32_t *out, uint32_t n)
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
         if (P.rMix) rv = rz(reverb(rz(wet, 3) + rz(dl + dr, 3)) * P.rMix, 7);   /* the acid, the animal and their echoes */
-        l = sat((mix + ((dl * 13) >> 4) + rv) * md); r = sat((mix + ((dr * 13) >> 4) + rv) * md);
+        l = sat((mix + ((b2 * 22) >> 5) + ((dl * 13) >> 4) + rv) * md); r = sat((mix + b2 + ((dr * 13) >> 4) + rv) * md);
+        if (SG.on) {
+            l = (l * SG.gain) >> 15; r = (r * SG.gain) >> 15;
+            if (SG.gapNext && E.playing && (E.s & 15u) == 15u) { l >>= 3; r >>= 3; }   /* the half-beat of silence before a drop */
+        }
         /* punch-ins (FX held + a key): the whole mix */
         if (!X.frozen) { capL[X.ci] = (int16_t)l; capR[X.ci] = (int16_t)r; }
         X.ci = (X.ci + 1u) & CMASK;
@@ -1102,13 +1336,14 @@ static const char *const L_SRC[] = {"STEPS", "FORMULA"};
 static const char *const L_FILT[] = {"303 4P", "SVF 2P"};
 static const char *const L_KIT[] = {"FUNC", "909"};
 static const char *const L_MCLK[] = {"OFF", "OUT", "IN"};
+static const char *const L_DSONG[] = {"ANY", "CHICAGO", "MINIMAL", "TWO 303S", "SCREAM", "BREAKS", "BIG ROOM"};
 enum { PM_CUT, PM_RES, PM_ENV, PM_ADEC, PM_AWAVE, PM_ASUB, PM_ATUNE, PM_ALVL, PM_ADRIVE, PM_AACC, PM_AGATE, PM_AGLIDE,
        PM_BANIMAL, PM_BQUANT, PM_BARP, PM_BLVL, PM_BDRIFT, PM_BNOISE, PM_BBRIGHT, PM_BTUNE, PM_BPER, PM_BPHASE,
        PM_KTOP, PM_KTONE, PM_KCLICK, PM_KDRIVE, PM_KPDEC, PM_KBODY, PM_KBASE, PM_KDUCK,
        PM_HTYPE, PM_HTONE, PM_HPAT, PM_HLVL, PM_HDEC,
        PM_N, PM_OFF, PM_DENS, PM_SWING, PM_LRATE, PM_LDEP, PM_LSHAPE, PM_LDEST, PM_DTIME, PM_DFB, PM_DMIX, PM_MDRIVE,
        PM_SCALEC, PM_WALK, PM_ROOT, PM_ARPSET, PM_BLIPAMT, PM_BLIPN, PM_BPM, PM_AUTO, PM_BARS, PM_KLVL,
-       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_AFILT, PM_KIT, PM_MCLK, PM_MNOTE, PM_MCH, PM_NONE };
+       PM_DTONE, PM_SLEN, PM_ASRC, PM_STRANS, PM_RMIX, PM_AFILT, PM_KIT, PM_MCLK, PM_MNOTE, PM_MCH, PM_BOOT, PM_DSONG, PM_NONE };
 static const pm_t PM[] = {
     {"CUTOFF", O(cut), 0, 127, 0, F_NUM, 0, 0}, {"RESO", O(res), 0, 120, 0, F_NUM, 0, 0}, {"ENV AMT", O(env), 0, 127, 0, F_NUM, 0, 0},
     {"DECAY", O(aDec), 0, 127, 0, F_NUM, 0, 0}, {"WAVE", O(aWave), 0, 3, 0, F_LIST, 0, L_WAVE}, {"SUB", O(aSub), 0, 127, 0, F_NUM, 0, 0},
@@ -1136,8 +1371,14 @@ static const pm_t PM[] = {
     {"FILTER", O(aFilt), 0, 1, 0, F_LIST, 0, L_FILT},
     {"KIT", O(kit), 0, 1, 0, F_LIST, 2, L_KIT},
     {"CLOCK", O(mClk), 0, 2, 0, F_LIST, 9, L_MCLK}, {"NOTES OUT", O(mNote), 0, 1, 0, F_LIST, 9, L_ONOFF}, {"ACID CH", O(mCh), 0, 15, 0, F_CH, 9, 0},
+    {"BOOT DEMO", O(bootDemo), 0, 1, 0, F_LIST, 9, L_ONOFF}, {"DEMO SONG", O(demoSong), 0, 6, 0, F_LIST, 9, L_DSONG},
 };
-static int32_t pget(uint32_t k) { const uint8_t *b = (const uint8_t *)&P + PM[k].off; return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b; }
+static int32_t pget(uint32_t k)
+{
+    const uint8_t *b = (const uint8_t *)&P + PM[k].off;
+    if (SG.on && k <= PM_ADEC && !(SG.own >> k & 1u)) return SG.k[k] > PM[k].max ? PM[k].max : SG.k[k];   /* the song's hand on the knob */
+    return PM[k].sgn ? (int32_t)(int8_t)*b : (int32_t)*b;
+}
 static void pset(uint32_t k, int32_t v)
 {
     int32_t mx = PM[k].max;
@@ -1196,6 +1437,7 @@ static const page_t PG_SPACE = {"SPACE", {PM_RMIX, PM_MDRIVE, PM_NONE, PM_NONE}}
 static const page_t PG_MIX = {"MIX", {PM_ALVL, PM_BLVL, PM_KLVL, PM_HLVL}};
 static const page_t PG_DRUM = {"DRUMS", {PM_NONE, PM_NONE, PM_NONE, PM_NONE}};
 static const page_t PG_MIDI = {"MIDI", {PM_MCLK, PM_MNOTE, PM_MCH, PM_NONE}};
+static const page_t PG_START = {"START", {PM_BOOT, PM_DSONG, PM_NONE, PM_NONE}};
 
 static struct {
     uint8_t group, page, part, rec, rootOct;
@@ -1222,18 +1464,58 @@ static const page_t *cur_page(void)
     case G_ARP: return &PG_OTHER[3];
     case G_SEQ: return U.page < seq_step_pages() ? &PG_STEPS : &PG_OTHER[4];
     case G_DRUM: return &PG_DRUM;
-    default: return U.page % 3u == 0u ? &PG_OTHER[5] : U.page % 3u == 1u ? &PG_MIX : &PG_MIDI;
+    default: return U.page % 4u == 0u ? &PG_OTHER[5] : U.page % 4u == 1u ? &PG_MIX : U.page % 4u == 2u ? &PG_MIDI : &PG_START;
     }
 }
-static uint32_t npages(void) { return U.group == G_EDIT ? NEDIT[U.part] : U.group == G_SEQ ? seq_step_pages() + 1u : U.group == G_GLO ? 3u : U.group == G_FX ? 2u : 1u; }
+static uint32_t npages(void) { return U.group == G_EDIT ? NEDIT[U.part] : U.group == G_SEQ ? seq_step_pages() + 1u : U.group == G_GLO ? 4u : U.group == G_FX ? 2u : 1u; }
 static void toast(const char *a, const char *b)
 {
     U.toast[0] = 0; scat(U.toast, a); if (b) scat(U.toast, b);
     U.toastT = fm1_ms; U.touch = -1;
 }
 static void changed(void) { U.dirty = 1; U.dirtyT = fm1_ms; }
-static void save_all(void) { ST.cur = P; settings_save(&ST, sizeof ST); U.dirty = 0; }   /* an erase: the sound stalls a moment */
+static void save_all(void) { ST.cur = SG.on ? PB : P; settings_save(&ST, sizeof ST); U.dirty = 0; }   /* in a song: your own set */   /* an erase: the sound stalls a moment */
 static int steps_page(void) { return U.group == G_SEQ && U.page < seq_step_pages(); }
+#define SG_PLAYABLE 6u                               /* DEEP (its pads) and RAGA (its tanpura) come in 0.40 */
+static const char *const SG_LAB[8] = {"CHIC", "MINI", "2X303", "SCRM", "BRKS", "BIG", "DEEP", "RAGA"};
+static void sg_enter(uint32_t n, int demo)          /* play song n from its start; your set is kept in PB */
+{
+    const sg_song_t *g = &SONGS[n];
+    uint32_t v;
+    if (!SG.on) PB = P; else P = PB;
+    P.bpm = g->bpm; P.swing = (uint8_t)(g->swing > 40u ? 40u : g->swing); P.autoSong = 0; P.sTrans = 0;
+    P.aLvl = 100; P.aSub = 0; P.aTune = 0; P.aFilt = 0; P.aGate = 50; P.aGlide = 0; P.dTime = 2; P.dTone = 64;
+    P.terms = (uint16_t)(P.terms & ~(T_BIO | T_PERC)); P.mutes = 0; P.kDuck = 40; P.kLvl = 110;
+    drum_defaults(&P); P.kit = 1; drDirty = 0x7FFu;
+    memset(P.mot, 255, sizeof P.mot); motAny = 0;
+    for (v = 0; v < 4u; v++) motTouch[v] = 0;
+    SG.song = (uint8_t)n; SG.demo = (uint8_t)demo; SG.loop = 0; SG.ended = 0; SG.own = 0; SG.jump = -1; SG.off = 0;
+    for (; SG.off + 1 < (int32_t)g->nb; SG.off++) {                  /* from the first bar that sounds (MINIMAL fades in from nothing) */
+        const uint16_t *r = &SG_BARS[((uint32_t)g->first + (uint32_t)SG.off) * 3u];
+        uint32_t j, any = 0;
+        for (j = 0; j < 11u; j++) any |= SG_DRUM[r[2] * 22u + j * 2u];
+        for (j = 0; j < 16u; j++) any |= !((uint8_t)SG_ACID[r[0] * 32u + j * 2u + 1u] & 4u);
+        if (any) break;
+    }
+    SG.on = 1; E.startReq = 1;
+    { char t[32] = ""; scat(t, g->name); if (demo) scat(t, "  PLAY = YOUR SET"); toast(t, 0); }
+}
+static void sg_exit(void)                            /* back to your own set, stopped */
+{
+    if (!SG.on) return;
+    if (E.playing) E.stopReq = 1;
+    SG.on = 0; SG.demo = 0;
+    P = PB; P.magic = MAGIC; drDirty = 0x7FFu; count_lanes(); mot_count(); riseStart = -1;
+}
+static void sg_skip(int d)                           /* the next section / this section's start (or the one before) */
+{
+    const sg_song_t *g = sgs();
+    int32_t sb = SG.curSb < 0 ? 0 : SG.curSb, sc = sg_sec_of(sb), t;
+    if (d > 0) { if (sc + 1 >= g->nsec) { toast("LAST SECTION", 0); return; } t = sc + 1; }
+    else t = sb - (g->secBar[sc] - 1) < 2 && sc > 0 ? sc - 1 : sc;
+    SG.jump = g->secBar[t] - 1;
+    toast(g->secName[t], 0);
+}
 static uint32_t step_base(void) { return steps_page() ? U.page * 16u : 0u; }
 
 /* ---- TB-3PO's idea: OCT+ throws a new ACID line, OCT- mutates one or two things (drums and BIO stay) */
@@ -1548,8 +1830,8 @@ static void layer_key(uint32_t k, int down)
         if (down) { P.root = (int8_t)(53 + (int32_t)k - 24); { char s[8] = ""; snote(s, P.root); toast("ROOT ", s); } changed(); }
         break;
     case BTN_HOME:
-        if (down && w && i < 6) { apply_chapter((uint32_t)i); riseStart = -1; toast(CHAPTERS[i].name, 0); changed(); }
-        if (down && w && i >= 8 && i < 16) { load_pattern((uint32_t)(i - 8)); count_lanes(); toast("LINE: ", PATS[i - 8].name); changed(); }
+        if (down && w && i < 8) { if ((uint32_t)i < SG_PLAYABLE) sg_enter((uint32_t)i, 0); else toast(SONGS[i].name, ": IN 0.40"); }
+        if (down && w && i >= 8 && i < 16 && !SG.on) { load_pattern((uint32_t)(i - 8)); count_lanes(); toast("LINE: ", PATS[i - 8].name); changed(); }
         break;
     case BTN_EDIT: case BTN_ENV:
         if (!down || !w) return;
@@ -1561,6 +1843,7 @@ static void layer_key(uint32_t k, int down)
         break;
     case BTN_SAVE:                                   /* white keys 1-6: a tap loads U1-U6, a long press (0.7 s) saves into it */
         if (!w || i >= (int)NSLOT) break;
+        if (SG.on) { if (down) toast("STOP THE SONG FIRST", 0); break; }
         if (down) { U.slotK = (int8_t)i; U.slotT = fm1_ms; U.slotArm = 0; break; }
         if (U.slotK != (int8_t)i) break;
         {
@@ -1586,7 +1869,7 @@ static const char *layer_label(uint32_t k, char *buf)       /* what key k does i
     case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; if (w && i == 4) return "KNOBS"; break;
     case BTN_FX: if (w && i < 16) return FX_LAB[i]; break;
     case BTN_SEL: snote(buf, 53 + (int32_t)k - 24); return buf;
-    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i >= 8 && i < 16) return PATS[i - 8].lab; break;
+    case BTN_HOME: if (w && i < 8) return SG_LAB[i]; if (w && i >= 8 && i < 16) return PATS[i - 8].lab; break;
     case BTN_EDIT: case BTN_ENV: if (w && i < 4) return TRK[i]; if (w && i >= 8 && (uint32_t)(i - 8) < NPRE[U.part]) { scat(buf, "P"); sint(buf, i - 7); return buf; } break;
     case BTN_ARP: if (w && i < 6) return L_CHORD[i]; break;
     case BTN_SAVE: if (w && i < (int)NSLOT) { scat(buf, "U"); sint(buf, i + 1); return buf; } break;
@@ -1602,7 +1885,7 @@ static int layer_on(uint32_t k)
     case BTN_GLO: return w && i < 4 && !(P.mutes >> i & 1u);
     case BTN_REC: return w && ((i == 2 && P.laneMode[U.part] == 0) || (i == 3 && P.keyLock));
     case BTN_SEL: return 53 + (int32_t)k - 24 == P.root;
-    case BTN_HOME: return w && !STEPS && i == (int)P.chapter;
+    case BTN_HOME: return w && SG.on && i == (int)SG.song;
     case BTN_FX: return w && fx_on((uint32_t)i);
     case BTN_EDIT: case BTN_ENV: return w && (i == (int)U.part || (i >= 8 && i - 8 == (int)P.pre[U.part]));
     case BTN_ARP: return w && i == (int)P.arpSet;
@@ -1615,6 +1898,8 @@ static int has_layer(int b) { return b == BTN_SAVE || b == BTN_SEQ || b == BTN_G
 static void tap(int b)
 {
     static const int8_t GRP[14] = {-1, -1, G_FX, G_SEL, G_ENV, G_LFO, G_EDIT, G_GLO, G_HOME, -2, G_ARP, G_SEQ, -1, -1};
+    if (SG.on && b == BTN_REC) { SG.loop ^= 1u; toast("LOOP SECTION ", SG.loop ? "ON" : "OFF"); return; }
+    if (SG.on && b == BTN_SEQ) { toast("A SONG: PLAY = YOUR SET", 0); return; }
     if (b == BTN_REC) {
         U.rec ^= 1u; recNow = U.rec; U.recPos = 0;
         if (U.rec) {
@@ -1649,6 +1934,7 @@ static void turn(uint32_t enc, int32_t d)
     }
     if (enc == ENC_SELECT) {
         if (npages() > 1u) { int32_t p = (int32_t)U.page + d; U.page = (uint8_t)(p < 0 ? 0 : p >= (int32_t)npages() ? (int32_t)npages() - 1 : p); }
+        else if (SG.on) sg_skip(d);
         else if (STEPS) toast("STEPS PLAY (SEQ)", 0);
         else { int32_t c = (int32_t)P.chapter + d; c = c < 0 ? 0 : c > 5 ? 5 : c; apply_chapter((uint32_t)c); toast(CHAPTERS[c].name, 0); changed(); }
         return;
@@ -1675,7 +1961,12 @@ static void turn(uint32_t enc, int32_t d)
         if (k == PM_NONE) return;
         span = PM[k].max - PM[k].min;
         step = span > 40 ? (d > 1 || d < -1 ? d * 3 : d * 2) : d;           /* wide ranges move faster */
+        if (SG.on) {
+            uint32_t m;
+            for (m = 0; m < 4u; m++) if (PM[k].off == MOT_OFF[m] && !(SG.own >> m & 1u)) { pset(k, pget(k)); SG.own |= (uint8_t)(1u << m); }
+        }
         pset(k, pget(k) + step);
+        if (SG.on && k >= PM_MCLK && k <= PM_DSONG) ((uint8_t *)&PB)[PM[k].off] = ((const uint8_t *)&P)[PM[k].off];   /* settings, not sound: kept */
         U.touch = (int8_t)i; U.touchT = fm1_ms;
         {
             uint32_t m;
@@ -1713,6 +2004,11 @@ static void draw_top(void)                                   /* 0..58: the page,
     s[0] = 0;
     if (edit) { scat(s, TRK[U.part]); scat(s, ">"); }
     if (steps_page() && U.stepHeld >= 0) { scat(s, "STEP "); sint(s, U.stepHeld + 1); }
+    else if (SG.on && U.group == G_HOME) {
+        const sg_song_t *g = sgs();
+        if (SG.demo && (fm1_ms / 2500u) % 2u) scat(s, "PLAY = YOUR SET");
+        else { scat(s, g->name); scat(s, " > "); scat(s, g->secName[SG.sec < g->nsec ? SG.sec : 0]); }
+    }
     else if (U.group == G_DRUM) { scat(s, "909 > "); scat(s, DRN[P.drSel]); }
     else scat(s, pg->name);
     if (steps_page() && P.sLen > 16u) scat(s, U.page ? " 17-32" : " 1-16");
@@ -1720,6 +2016,7 @@ static void draw_top(void)                                   /* 0..58: the page,
     t5((int32_t)x, 5, s, INK);
     s[0] = 0;
     if (edit) scat(s, pre_name(U.part, P.pre[U.part]));        /* on a track's pages: its preset instead of the clock */
+    else if (SG.on && E.playing) { sint(s, SG.curSb + 1); scat(s, "/"); sint(s, sgs()->nb); }
     else { if (E.playing) { sint(s, (E.s >> 4) % 99u + 1u); scat(s, "."); sint(s, ((E.s & 15u) >> 2) + 1u); scat(s, "  "); } sint(s, P.bpm); }
     i = 236u - 6u * slen(s);
     t5((int32_t)i, 5, s, INK);
@@ -1727,6 +2024,7 @@ static void draw_top(void)                                   /* 0..58: the page,
     else cv_rect((int32_t)i - 9, 5, 6, 7, mixc(PAPER, INK, 8));
     if (U.rec) cv_rect((int32_t)i - 20, 5, 7, 7, REDC);
     if (riseStart >= 0) t5((int32_t)i - 48, 5, "RISE", REDC);
+    if (SG.on && SG.loop) t5((int32_t)i - 48, 5, "LOOP", REDC);
     for (i = 0; i < 4u; i++) {
         int32_t x0 = 3 + (int32_t)i * 59, k = pg->k[i], hot = U.touch == (int8_t)i && fm1_ms - U.touchT < 800u;
         uint16_t fg = hot ? LIME : INK, bg = hot ? INK : PAPER;
@@ -1995,12 +2293,14 @@ static void draw_keymap(void)                                /* holding a button
 /* ================================================================ the main loop */
 #define OLDP 472u                                    /* sizeof params_t in 0.33 / 0.34 (up to sldHi) */
 #define P35 ((__builtin_offsetof(params_t, mClk) + 1u) & ~1u)   /* in 0.35 (up to drPot) */
+#define P36 ((__builtin_offsetof(params_t, bootDemo) + 1u) & ~1u)   /* in 0.36 - 0.38 (up to mCh) */
 _Static_assert(__builtin_offsetof(params_t, kit) == OLDP, "the 0.33 params end where kit begins");
 static uint8_t oldRaw[4084];
-static int load_old_store(void)                     /* 0.35: {cur; slot[6]; used[8]}; 0.33 / 0.34: {cur; slot[7]; used[8]} */
+static int load_old_store(void)                     /* 0.35 - 0.38: {cur; slot[6]; used[8]}; 0.33 / 0.34: {cur; slot[7]; used[8]} */
 {
     uint32_t k, sz, ns;
-    if (settings_load(oldRaw, P35 * 7u + 8u) == 0) { sz = P35; ns = 6u; }
+    if (settings_load(oldRaw, P36 * 7u + 8u) == 0) { sz = P36; ns = 6u; }
+    else if (settings_load(oldRaw, P35 * 7u + 8u) == 0) { sz = P35; ns = 6u; }
     else if (settings_load(oldRaw, OLDP * 8u + 8u) == 0) { sz = OLDP; ns = 7u; }
     else return 0;
     memset(&ST, 0, sizeof ST);
@@ -2008,7 +2308,8 @@ static int load_old_store(void)                     /* 0.35: {cur; slot[6]; used
         params_t *q = k ? &ST.slot[k - 1u] : &ST.cur;
         memcpy(q, oldRaw + sz * k, sz);
         if (sz == OLDP) drum_defaults(q);
-        q->mClk = 0; q->mNote = 0; q->mCh = 0;
+        if (sz != P36) { q->mClk = 0; q->mNote = 0; q->mCh = 0; }
+        q->bootDemo = 1; q->demoSong = 0;
         if (k) ST.used[k - 1u] = oldRaw[sz * (ns + 1u) + k - 1u];
     }
     return ST.cur.magic == MAGIC;
@@ -2031,6 +2332,7 @@ static void app_main(void)
     for (k = 0; k <= 16u; k++) pal_paper[k] = mixc(PAPER, INK, k);
     lcd_fill(0, 0, 240, 240, PAPER);
     toast(APP_NAME " ", APP_VER);                                           /* the version, for a second */
+    if (P.bootDemo && P.mClk != 2u) sg_enter(P.demoSong ? P.demoSong - 1u : fm1_ticks() % SG_PLAYABLE, 1);   /* a song to start with; PLAY = your own set */
     for (;;) {
         uint32_t keys, down, up, b, rel, e;
         platform_poll();
@@ -2050,7 +2352,9 @@ static void app_main(void)
         b = fm1_input_edges(&rel);
         for (k = 0; k < 14u; k++) {
             if (b >> k & 1u) {
-                if (k == BTN_PLAY) { if (E.playing) E.stopReq = 1; else { E.startReq = 1; if (P.mClk == 2u) { extTarget = 0; toast("WAITING FOR MIDI CLOCK", 0); } } }
+                if (k == BTN_PLAY && SG.on) { sg_exit(); toast("YOUR SET", 0); }
+                else if (k == BTN_PLAY) { if (E.playing) E.stopReq = 1; else { E.startReq = 1; if (P.mClk == 2u) { extTarget = 0; toast("WAITING FOR MIDI CLOCK", 0); } } }
+                else if ((k == BTN_OCT_UP || k == BTN_OCT_DOWN) && SG.on) sg_skip(k == BTN_OCT_UP ? 1 : -1);
                 else if (k == BTN_OCT_UP || k == BTN_OCT_DOWN) {
                     if (steps_page() && U.stepHeld >= 0) {
                         step_set_note((uint32_t)U.stepHeld, step_note((uint32_t)U.stepHeld, step_len()) + (k == BTN_OCT_UP ? 12 : -12));
@@ -2108,6 +2412,10 @@ static void app_main(void)
             else if (U.group == G_DRUM && !fxShow) draw_drums(); else if (steps_page() && !fxShow) draw_steps(); else draw_graph();
             draw_rows();
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
+        }
+        if (SG.on && SG.ended) {
+            if (SG.demo) sg_enter((SG.song + 1u) % SG_PLAYABLE, 1);
+            else { sg_exit(); toast("THE END: YOUR SET", 0); }
         }
         /* keep the settings when nothing has changed for 20 s and the music is stopped (an erase stalls the sound) */
         if (U.dirty && !E.playing && fm1_ms - U.dirtyT > 20000u) save_all();

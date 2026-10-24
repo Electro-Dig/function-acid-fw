@@ -1,5 +1,6 @@
 # FN ACID 0.33 host test: FILM, LENGTH 32 (the new steps copy the line), SEQ again = steps 17-32, edit step 20;
 # SAVE held + white key 1 held long = save U1; BLANK; SAVE held + tap white key 1 = load U1; GLO twice = MIX
+50 btn 12
 100 hold 8
 300 keys 0x10000
 400 keys 0
