@@ -1,0 +1,24 @@
+# 0.41: T2 ZOO alone (ACID and T3 muted): ALGORITHM to T2, a key turns it on; PRESETS through ACID B, MEOW, MEW MEW,
+# MOO, QUACK, WOOF, HOUSEFLY, WHALE SONG (4 s each, on its own clock)
+50 btn 12
+300 enc 1 1
+320 hold 7
+340 keys 0x1
+350 keys 0
+360 keys 0x10
+370 keys 0
+380 release 7
+400 btn 12
+600 keys 0x1
+700 keys 0
+2000 shot
+4600 enc 6 1
+8600 enc 6 1
+9000 shot
+12600 enc 6 1
+16600 enc 6 1
+20600 enc 6 1
+24600 enc 6 1
+28600 enc 6 1
+30000 shot
+32600 end

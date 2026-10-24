@@ -1,0 +1,7 @@
+# 0.41: RAGA, the whole song (its tanpura on T4 KEYS, the 808 as its soft kit)
+500 hold 8
+600 keys 0x1000
+700 keys 0
+800 release 8
+30000 shot
+200000 end

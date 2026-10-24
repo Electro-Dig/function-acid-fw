@@ -16,6 +16,19 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.41', '2026-10-24',
+     ['第 2 轨改成 ZOO：第二台 303，也会学动物叫。VOICE：ACID B（正常的 303，和 ACID 对着弹），MEOW / MEW / MOO / QUACK / WOOF / MEOW LONG（用 303 自己的方式叫：音高靠步 + 滑音，CUTOFF 是嘴），还有原来的苍蝇、蜜蜂、青蛙、鲸。CUTOFF 让嘴变大变小。放曲子时，曲子里的第二台 303 也由它来发声',
+      '第 3 轨多了 808（KIT：FUNC / 909 / 808）。同样是 11 行格子，最后两行是 CY（镲）和 CB（牛铃）；LT MT HT 的第 4 个旋钮切 TOM / CONGA，RS 切 RIM / CLAVE，CP 切 CLAP / MARACAS',
+      '第 4 轨改成 KEYS：能弹和弦的音色，PAD / PLUCK / GUITAR / E.PIANO / BELL / PIANO / DRONE。按 ARP 层选的和弦，节奏 HOLD / HALF / BEATS / OFFBEAT / 3-3-2 / ARP；选到第 4 轨弹琴键就是直接弹它，可以同时按几个键',
+      '曲目全部 8 首：DEEP（和弦垫在 KEYS 上）、RAGA（坦普拉在 KEYS 上，808 当软鼓）加进来了',
+      '学猫叫实验合进来：按住 FX + 黑键 = ACID 叫一声；HOME + 黑键 1 = MEOW 旋律',
+      '新设置：鼓默认 909，ZOO 和 KEYS 默认关着（选到那一轨弹一下琴键就打开）。旧存档里的 BIO 动物和 PERC 会换成新轨的对应音色'],
+     ['T2 is ZOO: a second 303 that also does animals. VOICE: ACID B (a plain 303 to answer ACID), MEOW / MEW / MOO / QUACK / WOOF / MEOW LONG (in the 303 way: steps and slides for the pitch, CUTOFF as the mouth), and the old fly, bee, frog, whale. The second 303 of a song now plays on it',
+      'T3 has the 808 too (KIT: FUNC / 909 / 808): the same 11-row grid, the last two rows CY and CB; KNOB4 switches LT MT HT tom / conga, RS rim / clave, CP clap / maracas',
+      'T4 is KEYS: chords. PAD / PLUCK / GUITAR / E.PIANO / BELL / PIANO / DRONE, on the ARP chord, rhythms HOLD / HALF / BEATS / OFFBEAT / 3-3-2 / ARP; with T4 selected the keys play it, several at once',
+      'All eight songs: DEEP (its pads on KEYS) and RAGA (its tanpura on KEYS, the 808 as its soft kit)',
+      'The acid-cat test is in: FX held + black keys = ACID calls; HOME + black key 1 = the MEOW line',
+      'A new set: the 909 by default, ZOO and KEYS off until a key on that track. Old saves: the BIO animals and PERC turn into the sounds of the new tracks']),
     ('0.40', '2026-10-24',
      ['鼓格子好找了：选到第 3 轨（ALGORITHM）按一下 SEQ 就是 909 的 11 行 × 16 步格子；KIT 还是 FUNC 时自动换成 909。在 ACID 上连按 SEQ（步 → LINE → 鼓）也能到',
       '格子上 OCT− / OCT+ = 上一行 / 下一行（像 SLOOP 的两个键），黑键直接选行，白键 开 → 重音 → 关',

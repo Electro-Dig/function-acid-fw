@@ -1,0 +1,15 @@
+# 0.41: T4 KEYS: a key turns it on (the chord on the root, HOLD), then SOUND through PAD PLUCK GUITAR E.PIANO BELL PIANO DRONE, 4 s each
+50 btn 12
+300 enc 1 3
+400 btn 12
+600 keys 0x1
+700 keys 0
+2000 shot
+4600 enc 2 1
+8600 enc 2 1
+12600 enc 2 1
+13000 shot
+16600 enc 2 1
+20600 enc 2 1
+24600 enc 2 1
+29000 end

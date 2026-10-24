@@ -34,4 +34,6 @@ owners. Dinghy is not made or endorsed by them.
 | --- | --- | --- |
 | 909 drum engine (`firmware/src/dsp/drum909*`, `fastmath.h`, `x0x_param.h`), `tools/gen_drum_samples.py` | [X0X](https://github.com/charlesvestal/fm1-x0x) (Charles Vestal), ported from [9W9](https://github.com/athousanddetails/schwung-9W9) (athousanddetails), itself after [ER-99](https://github.com/matthewcieplak/er-99) (Matthew Cieplak); unchanged | GPL-3.0 |
 | 909 hi-hat, ride and crash samples (`assets/909/`) | ER-99 via 9W9 via X0X | GPL-3.0 |
+| 808 drum engine (`firmware/src/dsp/drum808*`) | [X0X](https://github.com/charlesvestal/fm1-x0x) (Charles Vestal), ported from 8W8 (Charles Vestal and contributors); the rim shot from Yoshinosuke Horiuchi's sc808; unchanged | GPL-3.0 (sc808: MIT) |
+| The animal calls on ACID / T2 ZOO (`CALLS` in `dinghy.c`) | the acid-cat test (this project), after the video "如何用 Acid 学猫叫？" | GPL-3.0 |
 | Web installer page logic (`web/installer/sloop-installer-2.7.1.orig.html`) | [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) | GPL-3.0 |

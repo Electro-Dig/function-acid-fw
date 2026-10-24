@@ -1,0 +1,17 @@
+# 0.41: T3 KIT = 808 (ALGORITHM to T3 opens its EDIT page, KNOB1 two clicks from FUNC), play the default rows, then the grid (SEQ), the cowbell row
+50 btn 12
+300 enc 1 -3
+400 enc 1 2
+600 enc 2 2
+700 btn 12
+3000 shot
+4000 btn 11
+4500 shot
+5000 keys 0x1000000
+5100 keys 0
+5200 keys 0x40
+5300 keys 0
+5400 keys 0x200
+5500 keys 0
+7000 shot
+8000 end

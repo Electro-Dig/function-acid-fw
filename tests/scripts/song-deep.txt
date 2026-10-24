@@ -1,0 +1,7 @@
+# 0.41: DEEP, the whole song (its pads on T4 KEYS)
+500 hold 8
+600 keys 0x800
+700 keys 0
+800 release 8
+30000 shot
+200000 end

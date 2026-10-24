@@ -1,0 +1,21 @@
+# 0.41: KEYS alone (ACID and T3 muted with GLO + white 1, 3): SOUND through the seven, 4 s each
+50 btn 12
+300 enc 1 3
+320 hold 7
+340 keys 0x1
+350 keys 0
+360 keys 0x10
+370 keys 0
+380 release 7
+400 btn 12
+600 keys 0x1
+700 keys 0
+2000 shot
+4600 enc 2 1
+8600 enc 2 1
+12600 enc 2 1
+13000 shot
+16600 enc 2 1
+20600 enc 2 1
+24600 enc 2 1
+29000 end

@@ -28,6 +28,53 @@
 
 从 0.3 之后每次更新加 0.01：0.31、0.32、0.33……安装页和机器开机画面显示同一个号。改动记录在 GitHub：https://github.com/Electro-Dig/function-acid-fw
 
+## 0.41 改了什么：四条轨重新分工 + 8 首全齐
+
+现在的四条轨：
+
+| 轨 | 名字 | 是什么 |
+|---|---|---|
+| 1 | ACID | 303（不变）。新：按住 **FX + 黑键** = 叫一声（猫、牛、鸭、狗……），HOME + 黑键 1 = MEOW 旋律 |
+| 2 | **ZOO** | 第二台 303，也会学动物叫 |
+| 3 | 909 / **808** | 鼓，KIT 在第 3 轨 EDIT 第 1 页：FUNC / 909 / 808 |
+| 4 | **KEYS** | 能弹和弦的音色 |
+
+**第 2 轨 ZOO**（ALGORITHM 拧到第 2 轨）：
+
+- 拧 PRESETS 换预设：ACID B、MEOW、MEW MEW、MOO、QUACK、WOOF、HOUSEFLY、WHALE SONG。
+- EDIT 第 1 页：**VOICE**（叫声种类）/ CUTOFF（嘴大小）/ RESO / ENV；第 2 页：DECAY / ARP / TUNE / 音量；第 3 页是原来动物波形的参数。
+- 没录音符时它按自己的节拍叫（ENV 页的 CALL = 每几步叫一次，PHASE = 往后挪几步），ARP 打开会沿着和弦走。
+- 弹琴键 = 按这个音叫一声；REC 可以把音录进它的轨。
+- 放 TWO 303S、BIG ROOM 时，曲子里的第二台 303 就是它。
+
+**第 3 轨 808**：
+
+- 第 3 轨 EDIT 第 1 页 KIT 拧到 808。按 SEQ 进格子，行名会变成 BD SD LT MT HT RS CP CH OH **CY CB**。
+- 第 4 个旋钮：LT / MT / HT = 通鼓 ↔ 康加，RS = 边击 ↔ 响棒，CP = 拍手 ↔ 沙锤。
+- 换 KIT 时这套鼓的旋钮回到它自己的默认值，格子里的步不变。
+
+**第 4 轨 KEYS**：
+
+- ALGORITHM 拧到第 4 轨，弹琴键就是直接弹它，能同时按几个键。第一次弹会把这轨打开。
+- 拧 PRESETS：WARM PAD、PLUCK、GUITAR、E.PIANO、BELL、PIANO、DRONE、PLUCK ARP。
+- EDIT 第 1 页：SOUND / TONE（亮度）/ RHYTHM / 音量；第 2 页：CHORD（和弦种类，和 ARP 层同一个）/ DECAY。
+- 它自己会按 RHYTHM 弹和弦：HOLD（一小节一个）、HALF、BEATS、OFFBEAT（反拍）、3-3-2、ARP（十六分一个音往上走）。和弦的根音跟着 ROOT；在这一轨录了音，就用你录的音当根音。
+- MIDI：NOTES OUT 打开时，KEYS 的音从 ACID 通道 +2 发出去。
+
+**曲目**：HOME + 白键 7 = **DEEP**，白键 8 = **RAGA**，8 首全齐。开机演示也会轮到它们。
+
+**新开机 / 旧存档**：
+
+- 新设置默认是 909 鼓（带反拍闭镲），ZOO 和 KEYS 先关着。
+- 旧存档读进来：原来 BIO 的动物变成 ZOO 的同名声音，原来 PERC 那一轨换成 KEYS 的 WARM PAD。
+
+**请帮我听 / 看**：
+
+1. **AUDIO CPU**（GLO 第 1 页）：放 RAGA 和 DEEP 最满的段落、TWO 303S、还有 KEYS 用 PAD 或 DRONE 同时按几个键时是多少。这版加了很多声音，这个数最重要。
+2. ZOO 的 MEOW / MOO / QUACK 像不像；KEYS 每种音色好不好听，哪种最想要。
+3. 808 和 909 的音量差不多吗。
+4. DEEP、RAGA 和网页版比，哪里不像。
+
 ## 0.40 改了什么：鼓格子好找了，曲子在屏幕上看得见
 
 **909 鼓格子**（11 行 × 16 步，BD SD LT MT HT RS CP CH OH CR RD）：

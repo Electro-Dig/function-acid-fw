@@ -24,7 +24,7 @@ const SEC = { 'Intro': 'INTRO', 'Outro': 'OUTRO', 'Break': 'BREAK', 'Breakdown':
   '和弦': 'CHORDS', '第二台 303': 'SECOND 303', '铺垫': 'BUILD', '底鼓进来': 'KICK IN', '闭镲': 'HATS', '漂着': 'FLOATING' };
 const ROWS = ['bd', 'sd', 'lt', 'mt', 'ht', 'rs', 'cp', 'ch', 'oh', 'cr', 'rd'];
 
-const acidBars = [], acidKey = new Map(), drumBars = [], drumKey = new Map(), kf = [];
+const acidBars = [], acidKey = new Map(), drumBars = [], drumKey = new Map(), kf = [], padCh = [], padKey = new Map(), padBar = [];
 const intern = (list, map, rec) => { const k = JSON.stringify(rec); if (!map.has(k)) { map.set(k, list.length); list.push(rec); } return map.get(k); };
 const songs = [], barList = [];
 const lane = (K, conv) => { const off = kf.length; for (const [x, v] of K) kf.push([Math.max(0, Math.round((x - 1) * 64)), conv(v)]); return [off, K.length]; };
@@ -38,6 +38,17 @@ for (const id of ORDER) {
     const a = o && o.a != null ? o.a : 1; if (a < 0.2) return;
     D[n][r][0] |= 1 << j; if ((o && o.acc) || a >= 0.95) D[n][r][1] |= 1 << j;
   });
+  // the tanpura (RAGA): its plucks on the quarters (the same four strings every bar it sounds)
+  const tp = { notes: null, first: 0, last: 0 };
+  S.arrange((n, j, v, o) => {
+    if (v !== 'tp' || !o || o.m == null) return;
+    if (!tp.first) tp.first = n; tp.last = n;
+    if (!tp.notes) tp.notes = [];
+    if (n === tp.first) tp.notes[j / 4 | 0] = o.m;
+  });
+  // the pads (DEEP): a chord per bar (up to 5 notes), interned
+  const padOff = padBar.length;
+  if (S.PADS) for (let n = 1; n <= NB; n++) { const c = S.PADS(n); padBar.push(c ? intern(padCh, padKey, c.slice(0, 5)) : 255); }
   // the 303s: per bar, 16 steps [note offset, flags]; flags 1 accent, 2 slide, 4 rest, 8 tie, 16 two hits
   const voices = S.voices.slice(0, 2).map(vd => {
     const out = [];
@@ -67,10 +78,13 @@ for (const id of ORDER) {
     dly: lane(S.DLY || [[1, 0.15]], v => Math.round(v * 1000)), fb: lane(S.FB || [[1, 0.42]], v => Math.round(v * 1000)),
     verb: lane(S.VERB || [[1, 0.15]], v => Math.round(v * 1000)), lvl: lane(S.LVL || [[1, 0]], v => Math.round(v * 10)),
     dhp: lane(S.DHP || [[1, 20]], v => Math.round(v)),
+    plvl: lane(S.PADLVL || [[1, 0]], v => Math.round(v * 1000)), pbri: lane(S.PADBRI || [[1, 0]], v => Math.round(v * 1000)),
+    ppump: lane(S.PADPUMP || [[1, 0]], v => Math.round(v * 1000)), tpl: lane(S.TPLVL || [[1, 1]], v => Math.round(v * 1000)),
   };
   const risers = (S.RISERS || []).concat((S.ROLLS || []).map(n => [n, 1]));
   songs.push({ id, name: NAME[id], bpm: S.BPM, nb: NB, swing: Math.round((S.SWING || 0) * 100), soft: S.KIT === 'soft' ? 1 : 0, two: v1 ? 1 : 0,
-    bdly: v1 ? Math.round((v1.dly || 1) * 100) : 100, first, lanes, gaps: S.GAPS || [], risers,
+    bdly: v1 ? Math.round((v1.dly || 1) * 100) : 100, first, lanes, kit: S.KIT === 'soft' ? 2 : 1,
+    pad: S.PADS ? 1 : 0, padOff: S.PADS ? padOff : 0, tp, gaps: S.GAPS || [], risers,
     secs: (S.SECS || [[1, 'Intro']]).map(([b, nm]) => [b, SEC[nm] || nm.toUpperCase()]) });
 }
 
@@ -83,17 +97,22 @@ C.push(arr('SG_DRUM', 'uint16_t', drumBars.flatMap(b => b.flatMap(([on, ac]) => 
 C.push(arr('SG_BARS', 'uint16_t', barList.flat(), 24));
 C.push('/* SG_KF: pos (1/64 bar from bar 1) << 16 | value (int16, two\'s complement) */');
 C.push(arr('SG_KF', 'uint32_t', kf.map(([p, v]) => (p * 65536 + (v & 0xFFFF)) >>> 0), 12));
+C.push('/* the pads (DEEP): chords of up to 5 MIDI notes (0 = none), and the chord of each bar (255 = none) */');
+C.push(arr('SG_PADC', 'uint8_t', padCh.flatMap(c => [0, 1, 2, 3, 4].map(i => c[i] || 0)), 20));
+C.push(arr('SG_PADBAR', 'uint8_t', padBar.length ? padBar : [255], 32));
 C.push('typedef struct { uint16_t off, n; } sg_lane_t;');
-C.push('enum { SL_CUT, SL_RES, SL_ENV, SL_DEC, SL_ACC, SL_DRV, SL_WAVE, SL_BCUT, SL_BRES, SL_BENV, SL_BDEC, SL_DLY, SL_FB, SL_VERB, SL_LVL, SL_DHP, SL_N };');
+C.push('enum { SL_CUT, SL_RES, SL_ENV, SL_DEC, SL_ACC, SL_DRV, SL_WAVE, SL_BCUT, SL_BRES, SL_BENV, SL_BDEC, SL_DLY, SL_FB, SL_VERB, SL_LVL, SL_DHP, SL_PLVL, SL_PBRI, SL_PPUMP, SL_TPL, SL_N };');
 C.push('typedef struct { const char *name; uint8_t bpm, swing, soft, two, nsec, ngap, nris; uint16_t nb, first, bdly; sg_lane_t lane[SL_N];');
-C.push('                 uint8_t secBar[10]; const char *secName[10]; uint8_t gap[4]; uint8_t ris[6][2]; } sg_song_t;');
+C.push('                 uint8_t secBar[10]; const char *secName[10]; uint8_t gap[4]; uint8_t ris[6][2];');
+C.push('                 uint8_t kit, pad; uint16_t padOff; uint8_t tpNotes[4], tpFirst, tpLast; } sg_song_t;   /* kit 1 = 909, 2 = 808 (the soft kit) */');
 C.push('static const sg_song_t SONGS[SG_N] = {');
-const LN = ['cut', 'res', 'env', 'dec', 'acc', 'drv', 'wave', 'bcut', 'bres', 'benv', 'bdec', 'dly', 'fb', 'verb', 'lvl', 'dhp'];
+const LN = ['cut', 'res', 'env', 'dec', 'acc', 'drv', 'wave', 'bcut', 'bres', 'benv', 'bdec', 'dly', 'fb', 'verb', 'lvl', 'dhp', 'plvl', 'pbri', 'ppump', 'tpl'];
 for (const s of songs) {
   if (s.secs.length > 10 || s.gaps.length > 4 || s.risers.length > 6) throw new Error('too many sections / gaps / risers in ' + s.id);
   C.push(`    {"${s.name}", ${s.bpm}, ${s.swing}, ${s.soft}, ${s.two}, ${s.secs.length}, ${s.gaps.length}, ${s.risers.length}, ${s.nb}, ${s.first}, ${s.bdly},`);
   C.push(`     {${LN.map(k => `{${s.lanes[k][0]}, ${s.lanes[k][1]}}`).join(', ')}},`);
-  C.push(`     {${s.secs.map(x => x[0]).join(', ')}}, {${s.secs.map(x => JSON.stringify(x[1])).join(', ')}}, {${s.gaps.join(', ') || 0}}, {${s.risers.map(r => `{${r[0]}, ${r[1]}}`).join(', ') || '{0, 0}'}}},`);
+  C.push(`     {${s.secs.map(x => x[0]).join(', ')}}, {${s.secs.map(x => JSON.stringify(x[1])).join(', ')}}, {${s.gaps.join(', ') || 0}}, {${s.risers.map(r => `{${r[0]}, ${r[1]}}`).join(', ') || '{0, 0}'}},`);
+  C.push(`     ${s.kit}, ${s.pad}, ${s.padOff}, {${(s.tp.notes || [0, 0, 0, 0]).map(x => x || 0).join(', ')}}, ${s.tp.first}, ${s.tp.last}},`);
 }
 C.push('};', '');
 fs.writeFileSync(path.join(ROOT, 'firmware/gen/songs8.h'), C.join('\n'));
