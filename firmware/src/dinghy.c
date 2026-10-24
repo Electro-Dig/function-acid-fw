@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.48"
+#define APP_VER "0.49"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -2635,12 +2635,14 @@ static int32_t step_ang(uint32_t i) { return (int32_t)i * 64 - 256; }
 static void ring_pos(uint32_t i, int32_t r, int32_t *x, int32_t *y) { int32_t a = step_ang(i); *x = RCX + ((r * icos(a)) >> 15); *y = RCY + ((r * isin(a)) >> 15); }
 static void draw_ring(void)
 {
-    uint32_t t = U.part & 3u, i, s0 = E.s & ~15u, now = E.s & 15u;
+    uint32_t t = U.part & 3u, i, s0, now, cs, cph;
     uint16_t col = TCOL[t];
+    do { cs = E.s; cph = E.stepPh; } while (cs != E.s);   /* the step and its phase from the same moment (the sound moves them) */
+    s0 = cs & ~15u; now = cs & 15u;
     char c[16] = "";
     cv_begin(134, 170, PAPER);
     if (E.playing) {                                 /* the pointer: a pale wedge and an ink hand */
-        int32_t a = step_ang(now) + (int32_t)((E.stepPh >> 16) * 64u >> 16), q;
+        int32_t a = step_ang(now) + (int32_t)((cph >> 16) * 64u >> 16), q;
         for (q = a - 14; q <= a + 14; q += 2) ray(RCX, RCY, RR - 6, q, mixc(PAPER, KNC[2], 4));
         ray(RCX, RCY, RR - 4, a, INK);
     }
