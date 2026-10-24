@@ -1,0 +1,15 @@
+# REC held + white key 1 (F3) = CLR the selected track. ACID's steps playing (drums muted), then CLR at 3 s
+50 btn 12
+100 hold 7
+150 keys 0x10
+200 keys 0
+250 release 7
+300 btn 12
+2500 shot
+3000 hold 13
+3500 keys 0x1
+3600 keys 0
+3700 shot
+4200 release 13
+5000 shot
+7000 end

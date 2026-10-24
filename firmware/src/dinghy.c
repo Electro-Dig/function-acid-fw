@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.42"
+#define APP_VER "0.43"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -1964,6 +1964,9 @@ static void clear_lane(int all)
     uint32_t t, i;
     for (t = 0; t < 4u; t++) if (all || t == U.part) for (i = 0; i < LANE; i++) P.lane[t][i] = NONE;
     if (all || U.part == 2u) { memset(P.drRow, 0, sizeof P.drRow); memset(P.drAcc, 0, sizeof P.drAcc); }
+    /* 0.43: ZOO and KEYS play on their own when they have no notes: cleared, they go quiet too (a preset or a key wakes them) */
+    if (all || U.part == 1u) P.terms &= (uint16_t)~T_BIO;
+    if (all || U.part == 3u) { P.terms &= (uint16_t)~T_PERC; kv_release_from(0); }
     count_lanes(); changed();
     toast(all ? "CLEARED ALL" : "CLEARED ", all ? 0 : TRK[U.part]);
 }

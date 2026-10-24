@@ -16,6 +16,9 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.43', '2026-10-24',
+     ['修 REC + 白键 1（CLR）在第 2 轨 ZOO、第 4 轨 KEYS 上好像清不掉：这两条轨没有音符时会自己弹（ZOO 按自己的节拍叫，KEYS 按 RHYTHM 弹和弦），清完立刻又自己弹起来。现在清完这条轨就安静；要它自己弹，拧 PRESETS 选个预设或弹一下琴键。REC + 白键 2（ALL）也一样'],
+     ['Fixed REC + white key 1 (CLR) seeming not to clear T2 ZOO or T4 KEYS: with no notes they play on their own (ZOO calls on its clock, KEYS plays its RHYTHM), so they started again at once. Cleared, the track is now quiet; a preset or a key wakes it. The same for REC + white key 2 (ALL)']),
     ('0.42', '2026-10-24',
      ['修 RAGA 鼓进来后刺耳：808 整套原来被放大到 909 的 4 倍（按底鼓对齐的），镲和军鼓的响弦太冲。现在 808 每一行单独对齐到 909 同一行的音量；RAGA 的软鼓再把军鼓响弦和镲压低',
       '坦普拉减负：照原曲最多 4 根弦、每根 4 秒；泛音改用递推算。RAGA 在电脑上的计算量降了一半（之前很可能让机器算不过来，出现杂音）'],
