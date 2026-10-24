@@ -8,7 +8,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FN ACID · 函数 Acid 固件安装</title>
-<meta name="description" content="FN ACID 0.39：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="description" content="FN ACID 0.40：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
 <meta name="theme-color" content="#c4e45a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22/%3E%3C/svg%3E">
 <style>
@@ -149,7 +149,7 @@ footer p{margin:0 0 8px}
   <section class="hero">
     <div>
       <h1><span class="fn">FN</span> ACID</h1>
-      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.39 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.39 test</span></p>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.40 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.40 test</span></p>
       <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
       <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
       <ul class="chips">
@@ -185,12 +185,12 @@ footer p{margin:0 0 8px}
         <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
       </div>
       <div class="card go-box">
-        <div class="ver"><span class="pill">FN ACID 0.39</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <div class="ver"><span class="pill">FN ACID 0.40</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
         <button id="go" disabled data-t="install"></button>
         <progress id="bar" max="100" value="0"></progress>
         <p id="status" role="status" aria-live="polite"></p>
         <pre id="log" class="lcd"></pre>
-        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 6da9877bc1ee5408096ad4e24b539153023f673a0e5a085b67dd2f3b6018ed5f</p>
+        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 731506055dab798318d18ddb16e4232a1a338fbe5b5a0de6e7d1ba1046ea2f04</p>
         <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
         <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
       </div>
@@ -201,7 +201,8 @@ footer p{margin:0 0 8px}
     <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
     <div class="card">
       <ul class="log-list">
-        <li class="now"><div class="v">0.39<small>2026-10-24</small></div><div><ul data-l="zh"><li>曲目模式：「Acid 的八种玩法」里的 6 首完整曲子装进了机器（芝加哥、极简、两台 303、尖叫、碎拍、大场面）。按住 HOME + 白键 1–6 选曲，从头放到尾：段落、两台 303、909、旋钮怎么拧、回声混响、静一拍再落下、上升噪声，都照网页原曲</li><li>开机演示：开机直接放一首（放完接下一首）。按 PLAY = 停下，回到你自己的设置，什么都没丢。GLO 第 4 页 START 可以关掉演示，或指定开机放哪首</li><li>放曲子时：OCT+ = 下一段，OCT− = 回到这段开头（刚开始时 = 上一段），SELECT 旋钮也能跳段；REC = 循环这一段；弹琴键 = 整首移调</li><li>曲子自己在拧 CUTOFF / RESO / ENV / DECAY（屏幕上的数字跟着动）。你一拧，那个旋钮就归你，直到下一段曲子再接回去</li><li>水下（要和弦垫）和拉格（要坦普拉）放在 0.40</li></ul><ul data-l="en"><li>Song mode: six of the &quot;8 ways to play acid&quot; songs, whole (CHICAGO, MINIMAL, TWO 303S, SCREAM, BREAKS, BIG ROOM). HOME held + white keys 1-6. Sections, both 303s, the 909, the knob moves, delay and reverb, the silent beat before a drop and the risers all follow the web originals</li><li>Boot demo: the FM-1 starts playing a song (then the next). PLAY = stop and get your own set back, untouched. GLO page 4 START turns it off or picks the song</li><li>In a song: OCT+ next section, OCT- this section&#x27;s start (or the one before), SELECT walks sections too; REC loops the section; keys transpose the song</li><li>The song turns CUTOFF / RESO / ENV / DECAY itself (the numbers move). Turn one and it is yours until the next section</li><li>DEEP (pads) and RAGA (tanpura) come in 0.40</li></ul></div></li>
+        <li class="now"><div class="v">0.40<small>2026-10-24</small></div><div><ul data-l="zh"><li>鼓格子好找了：选到第 3 轨（ALGORITHM）按一下 SEQ 就是 909 的 11 行 × 16 步格子；KIT 还是 FUNC 时自动换成 909。在 ACID 上连按 SEQ（步 → LINE → 鼓）也能到</li><li>格子上 OCT− / OCT+ = 上一行 / 下一行（像 SLOOP 的两个键），黑键直接选行，白键 开 → 重音 → 关</li><li>放曲子时屏幕跟着曲子走：轨道条显示曲子这一小节的 303 和鼓；SEQ = 曲子正在放的 303 这一小节，再按 SEQ = 曲子的 909 格子，一小节一小节在变。格子上的 4 个旋钮能实时改曲子里每种鼓的音色</li><li>水下、拉格 改到后面的版本</li></ul><ul data-l="en"><li>The drum grid is easy to reach: T3 selected (ALGORITHM), one SEQ press = the 909 grid, 11 rows x 16 steps; a FUNC kit switches to the 909. From ACID, SEQ steps -&gt; LINE -&gt; drums gets there too</li><li>On the grid OCT- / OCT+ = the row before / after (like SLOOP), black keys pick a row, white keys on &gt; accent &gt; off</li><li>A playing song shows itself: the track rows show its bar; SEQ = its 303 bar, SEQ again = its 909 grid, changing bar by bar. The grid knobs still shape each drum live</li><li>DEEP and RAGA move to a later version</li></ul></div></li>
+        <li><div class="v">0.39<small>2026-10-24</small></div><div><ul data-l="zh"><li>曲目模式：「Acid 的八种玩法」里的 6 首完整曲子装进了机器（芝加哥、极简、两台 303、尖叫、碎拍、大场面）。按住 HOME + 白键 1–6 选曲，从头放到尾：段落、两台 303、909、旋钮怎么拧、回声混响、静一拍再落下、上升噪声，都照网页原曲</li><li>开机演示：开机直接放一首（放完接下一首）。按 PLAY = 停下，回到你自己的设置，什么都没丢。GLO 第 4 页 START 可以关掉演示，或指定开机放哪首</li><li>放曲子时：OCT+ = 下一段，OCT− = 回到这段开头（刚开始时 = 上一段），SELECT 旋钮也能跳段；REC = 循环这一段；弹琴键 = 整首移调</li><li>曲子自己在拧 CUTOFF / RESO / ENV / DECAY（屏幕上的数字跟着动）。你一拧，那个旋钮就归你，直到下一段曲子再接回去</li><li>水下（要和弦垫）和拉格（要坦普拉）放在后面的版本</li></ul><ul data-l="en"><li>Song mode: six of the &quot;8 ways to play acid&quot; songs, whole (CHICAGO, MINIMAL, TWO 303S, SCREAM, BREAKS, BIG ROOM). HOME held + white keys 1-6. Sections, both 303s, the 909, the knob moves, delay and reverb, the silent beat before a drop and the risers all follow the web originals</li><li>Boot demo: the FM-1 starts playing a song (then the next). PLAY = stop and get your own set back, untouched. GLO page 4 START turns it off or picks the song</li><li>In a song: OCT+ next section, OCT- this section&#x27;s start (or the one before), SELECT walks sections too; REC loops the section; keys transpose the song</li><li>The song turns CUTOFF / RESO / ENV / DECAY itself (the numbers move). Turn one and it is yours until the next section</li><li>DEEP (pads) and RAGA (tanpura) come later</li></ul></div></li>
         <li><div class="v">0.38<small>2026-10-23</small></div><div><ul data-l="zh"><li>MIDI：NOTES OUT 打开时，ACID 的四个旋钮也发出去（ACID 的通道）：CUTOFF = CC 74、RESO = CC 71、ENV = CC 77、DECAY = CC 75。发的是正在听到的值（录了旋钮动作就跟着动作走），一变就发，每 2 秒全部再发一遍</li><li>给「滤波隧道」网页用：拧机身上的旋钮，隧道的开口和墙上的光跟着变</li></ul><ul data-l="en"><li>MIDI: with NOTES OUT on, the four ACID knobs go out too (on the ACID channel): CUTOFF CC 74, RESO CC 71, ENV CC 77, DECAY CC 75. The value you hear (knob motion included), sent when it changes and all four again every 2 s</li><li>For the Filter Tunnel page: turn the knobs and the tunnel opens and glows</li></ul></div></li>
         <li><div class="v">0.37<small>2026-10-21</small></div><div><ul data-l="zh"><li>修好停止后的底噪：镲（PERC）的包络在很小时停止衰减，噪声一直低低地响（播放时也垫在下面）；底鼓的“咔哒”和 909 的闪避也有同样的问题</li><li>回声和混响的反馈回路改成向零取整：尾巴会真正衰减到 0，不再留下一点直流</li></ul><ul data-l="en"><li>Fixed the hiss after stop: the hat (PERC) envelope stalled once its decay step rounded to 0 (also under the music); the kick click and the 909 duck had the same flaw</li><li>The delay and reverb loops round toward zero: their tails end at 0, with no DC left</li></ul></div></li>
         <li><div class="v">0.36<small>2026-10-20</small></div><div><ul data-l="zh"><li>MIDI（USB）：按三下 GLO 进 MIDI 页。CLOCK：OUT = 发时钟和开始 / 停止，IN = 跟外部时钟走；NOTES OUT 打开后把音符发出去</li><li>通道：ACID = ACID CH，BIO = 下一个通道，第 3 轨（909 用通用鼓号）和 PERC = 10 通道</li></ul><ul data-l="en"><li>USB-MIDI: GLO three times = MIDI. CLOCK OUT sends clock and start / stop, IN follows an external clock; NOTES OUT sends the notes</li><li>Channels: ACID on ACID CH, BIO on the next, track 3 (909 as GM drum notes) and PERC on 10</li></ul></div></li>
@@ -564,7 +565,7 @@ const TEXT = {
  "zh": {
   "intro": "用 USB 把 FM-1 直接接到电脑上（Chrome 或 Edge）。",
   "warn": "写入时不要拔 USB 线。",
-  "install": "安装 FN ACID 0.39",
+  "install": "安装 FN ACID 0.40",
   "other": "English",
   "editor": "编辑器",
   "edOffline": "下载编辑器",
@@ -609,7 +610,7 @@ const TEXT = {
  "en": {
   "intro": "Connect the FM-1 straight to the computer by USB (Chrome or Edge).",
   "warn": "Do not unplug the USB cable while writing.",
-  "install": "Install FN ACID 0.39",
+  "install": "Install FN ACID 0.40",
   "other": "中文",
   "editor": "Editor",
   "edOffline": "Download the editor",
@@ -683,7 +684,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.39 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "6da9877bc1ee5408096ad4e24b539153023f673a0e5a085b67dd2f3b6018ed5f"};
+const meta = {"version": "0.40 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "731506055dab798318d18ddb16e4232a1a338fbe5b5a0de6e7d1ba1046ea2f04"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {

@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.39"
+#define APP_VER "0.40"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -1476,7 +1476,7 @@ static void toast(const char *a, const char *b)
 static void changed(void) { U.dirty = 1; U.dirtyT = fm1_ms; }
 static void save_all(void) { ST.cur = SG.on ? PB : P; settings_save(&ST, sizeof ST); U.dirty = 0; }   /* in a song: your own set */   /* an erase: the sound stalls a moment */
 static int steps_page(void) { return U.group == G_SEQ && U.page < seq_step_pages(); }
-#define SG_PLAYABLE 6u                               /* DEEP (its pads) and RAGA (its tanpura) come in 0.40 */
+#define SG_PLAYABLE 6u                               /* DEEP (its pads) and RAGA (its tanpura) come later */
 static const char *const SG_LAB[8] = {"CHIC", "MINI", "2X303", "SCRM", "BRKS", "BIG", "DEEP", "RAGA"};
 static void sg_enter(uint32_t n, int demo)          /* play song n from its start; your set is kept in PB */
 {
@@ -1792,6 +1792,7 @@ static void drum_key(uint32_t k)
 {
     int w, i = key_index(k, &w);
     if (!w) { if (i < 11) { P.drSel = (uint8_t)i; drAud |= (uint16_t)(1u << i); toast(DRN[i], 0); } return; }
+    if (SG.on) { toast("THE SONG'S STEPS: PLAY = YOURS", 0); return; }
     {
         uint32_t v = P.drSel, b = 1u << i, on = P.drRow[v] & b, ac = P.drAcc[v] & b;
         if (!on) P.drRow[v] |= (uint16_t)b;                                          /* off -> on */
@@ -1830,7 +1831,7 @@ static void layer_key(uint32_t k, int down)
         if (down) { P.root = (int8_t)(53 + (int32_t)k - 24); { char s[8] = ""; snote(s, P.root); toast("ROOT ", s); } changed(); }
         break;
     case BTN_HOME:
-        if (down && w && i < 8) { if ((uint32_t)i < SG_PLAYABLE) sg_enter((uint32_t)i, 0); else toast(SONGS[i].name, ": IN 0.40"); }
+        if (down && w && i < 8) { if ((uint32_t)i < SG_PLAYABLE) sg_enter((uint32_t)i, 0); else toast(SONGS[i].name, ": COMING SOON"); }
         if (down && w && i >= 8 && i < 16 && !SG.on) { load_pattern((uint32_t)(i - 8)); count_lanes(); toast("LINE: ", PATS[i - 8].name); changed(); }
         break;
     case BTN_EDIT: case BTN_ENV:
@@ -1899,7 +1900,15 @@ static void tap(int b)
 {
     static const int8_t GRP[14] = {-1, -1, G_FX, G_SEL, G_ENV, G_LFO, G_EDIT, G_GLO, G_HOME, -2, G_ARP, G_SEQ, -1, -1};
     if (SG.on && b == BTN_REC) { SG.loop ^= 1u; toast("LOOP SECTION ", SG.loop ? "ON" : "OFF"); return; }
-    if (SG.on && b == BTN_SEQ) { toast("A SONG: PLAY = YOUR SET", 0); return; }
+    if (b == BTN_SEQ) {                              /* SEQ: ACID's steps (1-16, 17-32), LINE, then the drum grid; on T3: the grid first */
+        int drums;
+        if (U.group == G_DRUM) { U.group = G_SEQ; U.page = 0; if (!SG.on) U.part = 0; return; }
+        if (U.group != G_SEQ) drums = U.part == 2u;
+        else drums = SG.on || U.page + 1u >= npages();
+        if (!drums) { if (U.group == G_SEQ) U.page++; else { U.group = G_SEQ; U.page = 0; } if (!SG.on) U.part = 0; return; }
+        if (!P.kit && !SG.on) { P.kit = 1; drDirty = 0x7FFu; toast("T3 KIT: 909", 0); changed(); }
+        U.group = G_DRUM; U.page = 0; U.part = 2; return;
+    }
     if (b == BTN_REC) {
         U.rec ^= 1u; recNow = U.rec; U.recPos = 0;
         if (U.rec) {
@@ -1913,8 +1922,6 @@ static void tap(int b)
     if (GRP[b] < 0) return;
     if (U.group == (uint8_t)GRP[b]) U.page = (uint8_t)((U.page + 1u) % npages());
     else { U.group = (uint8_t)GRP[b]; U.page = 0; }
-    if (b == BTN_SEQ && P.kit && U.part == 2u && U.group != G_DRUM) { U.group = G_DRUM; U.page = 0; return; }   /* DRUMS */
-    if (b == BTN_SEQ && U.group == G_DRUM && GRP[b] == G_SEQ) { U.group = G_SEQ; U.page = 0; }
     if (U.group == G_SEQ) U.part = 0;                               /* SEQ is ACID's */
 }
 
@@ -2169,15 +2176,18 @@ static void draw_readout(void)                               /* what a knob did 
 static void draw_drums(void)                                 /* T3 on the 909: every row, each step over its white key */
 {
     uint32_t r, j, now = E.playing ? E.s & 15u : 99u;
+    uint16_t on[11], acs[11];
+    drum_masks(E.playing ? E.s : 0u, on, acs);
     cv_begin(240, 108, PAPER);
-    cv_rect(4, 2, 232, 11, LIME); t5(6, 4, "BLACK KEY = ROW   WHITE: ON > ACCENT > OFF", INK);
+    if (SG.on) { cv_rect(4, 2, 232, 11, TCOL[2]); t5(6, 4, "THE SONG'S 909   ROW: BLACK KEY / OCT", LIME); }
+    else { cv_rect(4, 2, 232, 11, LIME); t5(6, 4, "ROW: BLACK KEY/OCT  WHITE: ON>ACC>OFF", INK); }
     for (r = 0; r < 11u; r++) {
         int32_t y = 15 + (int32_t)r * 8, sel = r == P.drSel, mute = P.drMute >> r & 1u;
         if (sel) cv_rect(0, y - 1, 240, 8, mixc(PAPER, RGB(255, 255, 232), 10));
         t5(2, y, DRN[r], sel ? REDC : mixc(PAPER, INK, mute ? 5 : 13));
         for (j = 0; j < 16u; j++) {
-            int32_t x = 17 + (int32_t)j * 14 - (int32_t)j / 4u * 0, on = P.drRow[r] >> j & 1u, ac = P.drAcc[r] >> j & 1u;
-            uint16_t c = on ? (ac ? REDC : (mute ? mixc(PAPER, INK, 6) : INK)) : mixc(PAPER, INK, (j & 3u) ? 3 : 5);
+            int32_t x = 17 + (int32_t)j * 14, hit = on[r] >> j & 1u, ac = acs[r] >> j & 1u;
+            uint16_t c = hit ? (ac ? REDC : (mute ? mixc(PAPER, INK, 6) : INK)) : mixc(PAPER, INK, (j & 3u) ? 3 : 5);
             cv_rect(x, y, 12, 6, c);
             if (j == now) { cv_rect(x, y + 6, 12, 1, INK); }
         }
@@ -2187,15 +2197,16 @@ static void draw_drums(void)                                 /* T3 on the 909: e
 }
 static void draw_steps(void)                                 /* SEQ > STEPS: ACID's 16 steps, each over its white key */
 {
-    uint32_t L = step_len(), i, now = E.playing && STEPS ? E.s % L : 99u, base = step_base();
-    int32_t lo = P.root - 5, prevY = -1;
+    uint32_t L = SG.on ? 16u : step_len(), i, now = E.playing && (STEPS || SG.on) ? E.s % L : 99u, base = SG.on ? 0u : step_base();
+    int32_t lo = (SG.on ? 33 : P.root) - 5, prevY = -1;
     cv_begin(240, 108, PAPER);
-    if (!STEPS) { cv_rect(4, 3, 232, 11, REDC); t5(6, 5, "THE FORMULA PLAYS: KNOB2 -> STEPS", LIME); }
+    if (SG.on) { cv_rect(4, 3, 232, 11, TCOL[0]); t5(6, 5, "THE SONG'S 303   KEYS: TRANSPOSE", LIME); }
+    else if (!STEPS) { cv_rect(4, 3, 232, 11, REDC); t5(6, 5, "THE FORMULA PLAYS: KNOB2 -> STEPS", LIME); }
     else { cv_rect(4, 3, 232, 11, LIME); t5(6, 5, "HOLD STEP+KNOBS  OCT+ NEW  OCT- MUTATE", INK); }
     cv_rect(0, 86 - 10, 240, 1, mixc(PAPER, INK, 4));                                  /* the root */
     for (i = base; i < base + 16u; i++) {
         int32_t x = 2 + (int32_t)(i - base) * 15, y, n;
-        uint32_t v = P.lane[0][i], acc = accB() >> i & 1u, sld = sldB() >> i & 1u;
+        uint32_t v = SG.on ? WA.v[16u + i] : P.lane[0][i], acc = SG.on ? WA.f[16u + i] & 1u : accB() >> i & 1u, sld = SG.on ? WA.f[16u + i] >> 1 & 1u : sldB() >> i & 1u;
         char num[4] = "";
         if (i >= L) { cv_rect(x, 18, 14, 84, mixc(PAPER, INK, 2)); prevY = -1; continue; }
         if (i == now) cv_rect(x, 18, 14, 84, mixc(PAPER, INK, 4));
@@ -2203,12 +2214,12 @@ static void draw_steps(void)                                 /* SEQ > STEPS: ACI
         sint(num, (int32_t)i + 1);
         t5(x + (i < 9u ? 4 : 1), 93, num, mixc(PAPER, INK, i == now ? 16 : 9));
         if (v == NONE) { cv_rect(x + 5, 84, 4, 1, mixc(PAPER, INK, 7)); prevY = -1; continue; }
-        n = step_note(i, L);
+        n = SG.on ? win_note(&WA, 16u + i) : step_note(i, L);
         y = 86 - (n - lo) * 2; y = y < 20 ? 20 : y > 88 ? 88 : y;
         if ((v & 128u) && prevY >= 0) cv_rect(x - 3, y - 2, 17, 5, mixc(PAPER, INK, 12));        /* a tie: one long bar */
         else cv_rect(x + 1, y - 2 - (int32_t)acc, 12, 5 + 2 * (int32_t)acc, acc ? REDC : INK);
-        if (sld && i + 1u < L && i + 1u < base + 16u && P.lane[0][i + 1u] != NONE) {                                    /* a slide: a line into the next note */
-            int32_t n2 = step_note(i + 1u, L), y2 = 86 - (n2 - lo) * 2;
+        if (sld && i + 1u < L && i + 1u < base + 16u && (SG.on ? WA.v[17u + i] : P.lane[0][i + 1u]) != NONE) {   /* a slide: a line into the next note */
+            int32_t n2 = SG.on ? win_note(&WA, 17u + i) : step_note(i + 1u, L), y2 = 86 - (n2 - lo) * 2;
             y2 = y2 < 20 ? 20 : y2 > 88 ? 88 : y2;
             cv_line(x + 12, y, x + 16, y2, INK); cv_line(x + 12, y + 1, x + 16, y2 + 1, INK);
         }
@@ -2232,6 +2243,7 @@ static void draw_rows(void)                                  /* 166..240: the fo
         tx(20, y, &FONT_S, TRK[t], ink, bg);
         nm[0] = 0;
         if (muted) scat(nm, "MUTE"); else if (!on) scat(nm, "OFF");
+        else if (SG.on && t == 0u) scat(nm, sgs()->two ? "SONG X2" : "SONG");
         else { if (laneN[t]) { scat(nm, "*"); sint(nm, laneN[t]); scat(nm, " "); } scat(nm, t == 2u && P.kit ? "DRUMS" : pre_name(t, P.pre[t])); }
         nm[9] = 0;
         t5(58, y + 5, nm, mixc(PAPER, INK, on && !muted ? 11 : 5));
@@ -2240,12 +2252,15 @@ static void draw_rows(void)                                  /* 166..240: the fo
             acid_t a; voice_t v;
             cv_rect((int32_t)x, y + 15, 4, 1, mixc(PAPER, INK, 4));
             if (on && !muted) {
-                if (t == 0 && STEPS) {                      /* the steps as written (also when stopped) */
+                if (t == 0 && SG.on) {                      /* the song's bar */
+                    uint32_t v = WA.v[16u + k];
+                    if (v != NONE) h = (v & 128u) ? 5u : (WA.f[16u + k] & 1u) ? 12u : 8u;
+                } else if (t == 0 && STEPS) {               /* the steps as written (also when stopped) */
                     uint32_t i = s % step_len(), v = P.lane[0][i];
                     if (v != NONE) h = (v & 128u) ? 5u : (accB() >> i & 1u) ? 12u : 8u;
                 } else if (t == 0) { eval_acid(s, 0, &a, 1); if (a.gate) h = a.acc ? 12 : 8; }
                 else if (t == 1) { eval_bio(s, 20000u, &v); if (v.on) h = 4u + (uint32_t)(v.amp >> 12); }
-                else if (t == 2 && P.kit) { uint32_t r, c = 0; for (r = 0; r < 11u; r++) if (P.drRow[r] >> (s & 15u) & 1u) c++; h = c ? 4u + 3u * (c > 2u ? 2u : c) : 0u; }
+                else if (t == 2 && P.kit) { uint32_t r, c = 0; uint16_t dm[11], da[11]; drum_masks(s, dm, da); for (r = 0; r < 11u; r++) if (dm[r] >> (s & 15u) & 1u) c++; h = c ? 4u + 3u * (c > 2u ? 2u : c) : 0u; }
                 else if (t == 2) { eval_kick(s, 0, &v); if (v.on && v.kt == 0u) h = 10; }
                 else { uint32_t hp = perc_on(s); h = hp == 2u ? 9u : hp ? 5u : 0u; }
             }
@@ -2342,7 +2357,7 @@ static void app_main(void)
         up = prev & ~keys;
         prev = keys;
         for (k = 0; k < 27u; k++) {
-            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else if (U.group == G_DRUM) drum_key(k); else if (steps_page() && !U.rec) step_key(k, 1); else key_down(k); }
+            if (down >> k & 1u) { if (U.held >= 0 && has_layer(U.held)) layer_key(k, 1); else if (U.group == G_DRUM) drum_key(k); else if (steps_page() && !U.rec && !SG.on) step_key(k, 1); else key_down(k); }
             if (up >> k & 1u) {
                 if (U.stepHeld >= 0 && U.stepKey == k) step_key(k, 0);
                 else if (U.held >= 0 && has_layer(U.held)) layer_key(k, 0); else key_up(k);
@@ -2354,6 +2369,10 @@ static void app_main(void)
             if (b >> k & 1u) {
                 if (k == BTN_PLAY && SG.on) { sg_exit(); toast("YOUR SET", 0); }
                 else if (k == BTN_PLAY) { if (E.playing) E.stopReq = 1; else { E.startReq = 1; if (P.mClk == 2u) { extTarget = 0; toast("WAITING FOR MIDI CLOCK", 0); } } }
+                else if ((k == BTN_OCT_UP || k == BTN_OCT_DOWN) && U.group == G_DRUM) {
+                    int32_t r = (int32_t)P.drSel + (k == BTN_OCT_UP ? 1 : -1);
+                    P.drSel = (uint8_t)(r < 0 ? 10 : r > 10 ? 0 : r); drAud |= (uint16_t)(1u << P.drSel); toast(DRN[P.drSel], 0);
+                }
                 else if ((k == BTN_OCT_UP || k == BTN_OCT_DOWN) && SG.on) sg_skip(k == BTN_OCT_UP ? 1 : -1);
                 else if (k == BTN_OCT_UP || k == BTN_OCT_DOWN) {
                     if (steps_page() && U.stepHeld >= 0) {
