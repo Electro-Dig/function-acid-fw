@@ -251,6 +251,26 @@ static void load_pattern(uint32_t k)
     P.kDuck = 40; P.hPat = q->hPat; P.terms |= T_KICK | T_FOUR | T_PERC; P.terms &= (uint16_t)~T_BIO; P.mutes = 0;
     memset(P.mot, 255, sizeof P.mot);                                  /* a new line: no old knob motion */
 }
+/* the meow the 303's own way (acid-cat test, HOME + white key 8): FILM's first half, then C E E D C A an octave up, slid,
+ * and the mouth recorded in the knob motion lanes: CUTOFF opens and closes, RESO 0.84, no ENV. Off the call the lanes
+ * are empty, so the knobs still play the bass. (The lane tops out near 2 kHz, CUTOFF all the way up: the film opens to 2.5 kHz.) */
+static void mot_count(void);
+static void load_meow_line(void)
+{
+    static const uint8_t ST6[6] = {3, 7, 7, 5, 3, 0}, CUT7[7] = {85, 117, 127, 127, 114, 100, 89};
+    uint32_t i, b;
+    load_pattern(1);
+    setSldB(sldB() & ~(1u << 7));                                    /* no slide into the call */
+    for (i = 0; i < 6u; i++) P.lane[0][8u + i] = (uint8_t)(P.root + 12 + ST6[i]);
+    P.lane[0][14] = NONE; P.lane[0][15] = (uint8_t)P.root;
+    setAccB(accB() & 0xFFu); setSldB((sldB() & 0xFFu) | 0x1F00u);   /* steps 9-13 slide on */
+    for (b = 0; b < 4u; b++)
+        for (i = 0; i < 7u; i++) {
+            P.mot[0][b * 16u + 8u + i] = CUT7[i];
+            if (i < 6u) { P.mot[1][b * 16u + 8u + i] = 107; P.mot[2][b * 16u + 8u + i] = 0; }
+        }
+    mot_count();
+}
 static void count_lanes(void)
 {
     uint32_t t, i;
@@ -473,6 +493,81 @@ static int32_t cutoff_at(const acid_t *o, uint32_t s, uint32_t p16)
     amt = ((mv(2, s, p16) * 48) >> 7) + (o->acc ? (P.aAcc * 16) >> 7 : 0);
     if (fxFn & FN_SQUELCH) { base += 10 << 8; amt += 14; }
     return base + ((amt * e * 256) >> 15);
+}
+
+/* ---- animal calls (acid-cat test), after function-sounds/video/acid-cat.html: the resonant peak is one formant that
+ * moves (the mouth), the steps and slides are the call's pitch curve. FX held + a black key: one call over the line,
+ * from the next 16th while it plays (at once when stopped), with its own CUTOFF curve (in Hz: it does not follow the
+ * pitch, so a low call keeps its mouth), RESO, envelope and wave; then the line goes on. Black keys 1-5: low (the
+ * "bass meow"), 6-10: the animal's own register, 11: a long meow (a bar). Pitches: semitones above the root. */
+typedef struct {
+    const char *name, *lab;
+    uint8_t n, div, oct, lowOct, wave, res, envS, envMs;   /* steps (div 2: 32nds); octaves above the root; wave 255: the line's */
+    int8_t st[16];
+    uint16_t acc, sld, rest;
+    uint8_t nc; uint16_t ct[6]; int16_t cq[6];             /* CUTOFF by hand: at 1/16 steps, a Q8 note (log Hz) */
+} call_t;
+static const call_t CALLS[6] = {
+    /* C E E D C A, slid, the accent on the E: the mouth opens 520 -> 2500 Hz while the pitch is highest, then closes */
+    {"MEOW", "MEOW", 6, 1, 3, 1, 255, 107, 0, 0, {3, 7, 7, 5, 3, 0}, 0x2, 0x1F, 0,
+     5, {0, 24, 51, 77, 96}, {18404, 25364, 24375, 20836, 19039}},          /* 520 2500 2000 900 600 Hz */
+    {"MEW", "MEW", 3, 1, 3, 1, 255, 107, 0, 0, {3, 7, 3}, 0x2, 0x3, 0,
+     4, {0, 12, 36, 48}, {19039, 25183, 20836, 19039}},                     /* 600 2400 900 600 */
+    /* C D (held) C A: low, the mouth opens slowly (m -> oo) */
+    {"MOO", "MOO", 12, 1, 1, 0, 255, 91, 0, 0, {3, 5, 5, 5, 5, 5, 5, 5, 3, 0, 0, 0}, 0, 0x7FF, 0,
+     5, {0, 38, 102, 154, 192}, {13703, 16389, 20836, 19393, 14978}},       /* 180 330 900 650 240 */
+    /* square, a lot of resonance, short envelopes: four notes down, D C B A */
+    {"QUACK", "QUACK", 8, 1, 2, 1, 1, 114, 19, 100, {5, 0, 3, 0, 2, 0, 0, 0}, 0x41, 0, 0xAA,
+     2, {0, 128}, {19722, 19722}},                                          /* 700 */
+    /* 32nds: accented, a fast envelope, D -> B; "woof woof ... woof". No noise, no rasp: only half a dog */
+    {"WOOF", "WOOF", 16, 2, 2, 1, 3, 70, 26, 80, {5, 2, 0, 0, 5, 2, 0, 0, 0, 0, 0, 0, 5, 2, 0, 0}, 0x1011, 0x1011, 0xCFCC,
+     2, {0, 128}, {17764, 17014}},                                          /* 450 380 */
+    /* a bar: opens, stays open on the E, closes slowly */
+    {"MEOW LONG", "LONG", 16, 1, 3, 1, 255, 109, 0, 0, {3, 7, 7, 7, 7, 7, 7, 5, 5, 5, 3, 3, 0, 0, 0, 0}, 0x2, 0x7FFF, 0,
+     6, {0, 45, 122, 173, 218, 256}, {18404, 25364, 25089, 23100, 20314, 18404}},   /* 520 2500 2350 1500 800 520 */
+};
+static volatile int8_t callKey = -1, callReq = -1;          /* the black key sounding; the one waiting for the 16th */
+static volatile uint32_t callT0;                            /* its start, Q16 steps */
+static volatile uint8_t callWave = 255;
+static const call_t *call_of(int32_t k, int *low) { *low = k < 5; return &CALLS[k < 5 ? k : k < 10 ? k - 5 : 5]; }
+static int call_eval(uint32_t s, uint32_t p16, acid_t *o, int32_t *cq, int32_t *res)
+{
+    int32_t key = callKey, base, x;
+    int low;
+    const call_t *c;
+    uint32_t pos, u, j, ph, a, k, t, unitUs;
+    if (key < 0) return 0;
+    c = call_of(key, &low);
+    pos = (s << 16) + p16 - callT0;
+    u = pos * c->div; j = u >> 16; ph = u & 65535u;
+    if (pos > (32u << 16) || j >= c->n) { callKey = -1; return 0; }
+    unitUs = 15000000u / ((uint32_t)P.bpm * c->div);
+    base = P.root + P.sTrans + 12 * (low ? c->lowOct : c->oct);
+    o->slide = o->rest = 0;
+    for (a = j; a > 0u && (c->rest >> a & 1u); a--) { }      /* a rest: the note before, gate closed */
+    o->y = (base + c->st[a]) << 8;
+    if (c->rest >> j & 1u) { o->gate = 0; o->acc = 0; o->age = 0x7FFFFFFFu; }
+    else {
+        for (a = j; a > 0u && (c->sld >> (a - 1u) & 1u) && !(c->rest >> (a - 1u) & 1u); a--) { }   /* back to the attack */
+        if (a < j) {                                         /* slid into: the 303's glide, RC 22 ms */
+            x = (int32_t)(ph * (unitUs / 1000u) / (256u * 22u));
+            o->y += (((c->st[j - 1u] - c->st[j]) << 8) * expneg(x > 2047 ? 2047 : x)) >> 15;
+        }
+        o->acc = (uint8_t)(c->acc >> a & 1u);
+        o->slide = (uint8_t)((c->sld >> j & 1u) && j + 1u < c->n && !(c->rest >> (j + 1u) & 1u));
+        o->gate = o->slide || ph < 40000u;
+        o->age = ((j - a) << 16) + ph;
+    }
+    t = pos >> 8;                                            /* 1/256 steps */
+    for (k = 1; k + 1u < c->nc && t >= c->ct[k] * 16u; k++) { }
+    if (t >= c->ct[k] * 16u) x = c->cq[k];
+    else x = c->cq[k - 1u] + (int32_t)((c->cq[k] - c->cq[k - 1u]) * (int32_t)(t - c->ct[k - 1u] * 16u)) / (int32_t)((c->ct[k] - c->ct[k - 1u]) * 16u);
+    if (c->envS && o->gate) {                               /* the envelope from the attack, e^(-t / tau) */
+        uint32_t ms = ((o->age >> 6) * (unitUs / 1000u)) >> 10, q = ms * 256u / c->envMs;
+        x += (c->envS * expneg((int32_t)(q > 4095u ? 4095u : q))) >> 7;
+    }
+    *cq = x; *res = c->res;
+    return 1;
 }
 
 static void eval_kick(uint32_t s, uint32_t p16, voice_t *o)
@@ -739,13 +834,16 @@ static void on_step(void)
     }
     if (E.playing) perc_hit(perc_on(E.s));
     if (X.req && X.req != X.mode) punch_start();
+    if (callReq >= 0) { callT0 = E.s << 16; callKey = callReq; callReq = -1; }   /* a call: on the 16th */
 }
 static void control(void)
 {
     uint32_t s = E.s, p16 = E.stepPh >> 16, base;
     acid_t oA; voice_t oB, oK;
-    int32_t fcq;
+    int32_t fcq, callCq = 0, callRes = 0, callOn;
     eval_acid(s, p16, &oA, 0); eval_bio(s, p16, &oB); eval_kick(s, p16, &oK);
+    callOn = call_eval(s, p16, &oA, &callCq, &callRes);   /* an animal call takes ACID over (and sounds when ACID is muted) */
+    callWave = callOn ? CALLS[callKey < 5 ? callKey : callKey < 10 ? callKey - 5 : 5].wave : 255u;
     if (P.mNote && E.playing) {
         if (mNoteA >= 0 && !oA.gate) { mn_off(P.mCh & 15u, (uint32_t)mNoteA); mNoteA = -1; }
         if (oB.on && mNoteB < 0 && !(P.mutes & 2u)) { int32_t nb = (oB.y + 128) >> 8; mNoteB = (int16_t)(nb < 0 ? 0 : nb > 127 ? 127 : nb); mn_on((P.mCh + 1u) & 15u, (uint32_t)mNoteB, 90); }
@@ -758,14 +856,14 @@ static void control(void)
     if (P.kit && duckEnv > 0) duckEnv -= (duckEnv >> 8) + 1;                     /* ~90 ms */
     E.duck = 32767 - ((((P.mutes & 4u) ? 0 : P.kit ? duckEnv : oK.amp) * P.kDuck) >> 7);
     E.aInc = inc_q8(oA.y);
-    E.aAmpT = (!oA.gate || (P.mutes & 1u)) ? 0 : (((oA.acc ? 24000 + P.aAcc * 60 : 24000) * P.aLvl) >> 7);
+    E.aAmpT = (!oA.gate || ((P.mutes & 1u) && !callOn)) ? 0 : (((oA.acc ? 24000 + P.aAcc * 60 : 24000) * P.aLvl) >> 7);
     E.aAmpT = (E.aAmpT * E.duck) >> 15;
-    fcq = (int32_t)(inc_q8(cutoff_at(&oA, s, p16)) / 20861u);
+    fcq = (int32_t)(inc_q8(callOn ? callCq : cutoff_at(&oA, s, p16)) / 20861u);
     E.f = fcq < 23000 ? fcq : 23000;
     E.g = 32767 - expneg((fcq < 40000 ? fcq : 40000) >> 7);   /* one pole of the ladder: g = 1 - e^-w */
     {
-        int32_t res = mv(1, s, p16);
-        if ((fxFn & FN_SQUELCH) && res < 112) res = 112;
+        int32_t res = callOn ? callRes : mv(1, s, p16);
+        if ((fxFn & FN_SQUELCH) && res < 112 && !callOn) res = 112;
         E.damp = 32768 - ((res * 31500) >> 7);               /* Q14: 2.0 .. 0.08 */
         E.kq = res * 126;                                    /* the ladder's feedback, Q12: 0 .. 3.7 (no self-oscillation, as on a 303) */
     }
@@ -884,7 +982,8 @@ static void app_audio(int32_t *out, uint32_t n)
         E.aAmp += (E.aAmpT - E.aAmp) >> 6;
         {
             int32_t saw = (int32_t)(E.aPh >> 16) - 32768, sq = E.aPh < 0x80000000u ? 26000 : -26000, src, hp;
-            src = P.aWave == 0 ? saw : P.aWave == 1 ? sq : P.aWave == 2 ? (E.aPh < 0x40000000u ? 26000 : -26000) : (saw + sq) >> 1;
+            uint32_t wv = callWave < 4u ? callWave : P.aWave;
+            src = wv == 0 ? saw : wv == 1 ? sq : wv == 2 ? (E.aPh < 0x40000000u ? 26000 : -26000) : (saw + sq) >> 1;
             if (P.aSub) src = (src * (127 - (P.aSub >> 1)) + (E.aSub < 0x80000000u ? 26000 : -26000) * (P.aSub >> 1)) >> 7;
             if (P.aFilt == 0u) {
                 int32_t u = (src >> 1) - ((E.kq * E.y4) >> 12), u3;
@@ -1492,6 +1591,16 @@ static void fx_key(uint32_t i, int down)
     else if (down && !fxThrow) { fxThrowKeep = P.dMix; P.dMix = 127; fxThrow = 1; }
     else if (!down && fxThrow) { P.dMix = fxThrowKeep; fxThrow = 0; }
 }
+static void call_key(uint32_t i, int down)
+{
+    int low;
+    const call_t *c;
+    if (!down || i > 10u) return;
+    c = call_of((int32_t)i, &low);
+    toast(low ? "LOW " : "", c->name);
+    if (E.playing) callReq = (int8_t)i;
+    else { callT0 = (E.s << 16) + (E.stepPh >> 16); callKey = (int8_t)i; }
+}
 static void fx_release_all(void)                 /* FX let go: everything back */
 {
     X.req = 0; X.flags = 0; fxFn = 0; fxBufKey = -1; riseStart = -1;
@@ -1542,7 +1651,7 @@ static void layer_key(uint32_t k, int down)
         else if (i == 4) { memset(P.mot, 255, sizeof P.mot); motAny = 0; toast("KNOB MOTION CLEARED", 0); changed(); }
         break;
     case BTN_FX:
-        if (w) fx_key((uint32_t)i, down);
+        if (w) fx_key((uint32_t)i, down); else call_key((uint32_t)i, down);
         break;
     case BTN_SEL:
         if (down) { P.root = (int8_t)(53 + (int32_t)k - 24); { char s[8] = ""; snote(s, P.root); toast("ROOT ", s); } changed(); }
@@ -1550,6 +1659,7 @@ static void layer_key(uint32_t k, int down)
     case BTN_HOME:
         if (down && w && i < 6) { apply_chapter((uint32_t)i); riseStart = -1; toast(CHAPTERS[i].name, 0); changed(); }
         if (down && w && i >= 8 && i < 16) { load_pattern((uint32_t)(i - 8)); count_lanes(); toast("LINE: ", PATS[i - 8].name); changed(); }
+        if (down && w && i == 7) { load_meow_line(); count_lanes(); toast("LINE: ", "MEOW"); changed(); }
         break;
     case BTN_EDIT: case BTN_ENV:
         if (!down || !w) return;
@@ -1584,9 +1694,9 @@ static const char *layer_label(uint32_t k, char *buf)       /* what key k does i
     case BTN_SEQ: if (w && i < 10) return TERM_NAMES[i]; if (!w) { scat(buf, "N"); sint(buf, NQ[i]); return buf; } break;
     case BTN_GLO: if (w && i < 4) return TRK[i]; break;
     case BTN_REC: if (w && i == 0) return "CLR"; if (w && i == 1) return "ALL"; if (w && i == 2) return P.laneMode[U.part] ? "EXACT" : "FOLLW"; if (w && i == 3) return "LOCK"; if (w && i == 4) return "KNOBS"; break;
-    case BTN_FX: if (w && i < 16) return FX_LAB[i]; break;
+    case BTN_FX: if (w && i < 16) return FX_LAB[i]; if (!w) { int low; return call_of(i, &low)->lab; } break;
     case BTN_SEL: snote(buf, 53 + (int32_t)k - 24); return buf;
-    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i >= 8 && i < 16) return PATS[i - 8].lab; break;
+    case BTN_HOME: if (w && i < 6) return CHAPTERS[i].name; if (w && i >= 8 && i < 16) return PATS[i - 8].lab; if (w && i == 7) return "MEOW"; break;
     case BTN_EDIT: case BTN_ENV: if (w && i < 4) return TRK[i]; if (w && i >= 8 && (uint32_t)(i - 8) < NPRE[U.part]) { scat(buf, "P"); sint(buf, i - 7); return buf; } break;
     case BTN_ARP: if (w && i < 6) return L_CHORD[i]; break;
     case BTN_SAVE: if (w && i < (int)NSLOT) { scat(buf, "U"); sint(buf, i + 1); return buf; } break;
@@ -1603,7 +1713,7 @@ static int layer_on(uint32_t k)
     case BTN_REC: return w && ((i == 2 && P.laneMode[U.part] == 0) || (i == 3 && P.keyLock));
     case BTN_SEL: return 53 + (int32_t)k - 24 == P.root;
     case BTN_HOME: return w && !STEPS && i == (int)P.chapter;
-    case BTN_FX: return w && fx_on((uint32_t)i);
+    case BTN_FX: return w ? fx_on((uint32_t)i) : callKey == i;
     case BTN_EDIT: case BTN_ENV: return w && (i == (int)U.part || (i >= 8 && i - 8 == (int)P.pre[U.part]));
     case BTN_ARP: return w && i == (int)P.arpSet;
     case BTN_SAVE: return w && i < (int)NSLOT && ST.used[i];

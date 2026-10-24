@@ -1,0 +1,26 @@
+# acid-cat test: the MEOW line (HOME + white key 8: FILM's half bar, then the meow in the knob lanes), drums muted
+# (GLO + white keys 3, 4) and delay / reverb off to measure it; 4 bars. Then FX + black key 6 (MEOW) pressed off the
+# grid at 9.03 s, and black key 11 (LONG) at 10.51 s: each should start on the next 16th.
+100 hold 8
+200 keys 0x1000
+300 keys 0
+400 release 8
+500 hold 7
+600 keys 0x10
+700 keys 0
+800 keys 0x40
+900 keys 0
+1000 release 7
+1100 btn 2
+1200 enc 4 -80
+1300 btn 2
+1400 enc 2 -80
+2000 btn 12
+4000 shot
+9000 hold 2
+9030 keys 0x2000
+9100 keys 0
+10510 keys 0x2000000
+10600 keys 0
+10700 release 2
+14000 end
