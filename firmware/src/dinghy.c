@@ -21,6 +21,8 @@
 #include "acid_tables.h"
 /* T3's 909 kit: X0X's port of 9W9 / ER-99 (GPL-3.0), unchanged, in this one unit (float: the FPU, checked in 0.34) */
 #include "dsp/drum909.c"
+/* 0.41: and the 808 kit: X0X's port of 8W8 (GPL-3.0; the rim shot sc808, MIT), unchanged */
+#include "dsp/drum808.c"
 #include "songs8.h"                              /* 0.39: the eight acid songs (tools/export_songs.mjs) */
 #undef LIN
 #undef EXP
