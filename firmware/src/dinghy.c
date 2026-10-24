@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.46"
+#define APP_VER "0.47"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -984,6 +984,7 @@ typedef struct {
     uint8_t on, gate, note, type, from, midi;        /* from: 0 the steps, 1 a key, 2 a song's pad, 3 a song's tanpura */
 } kv_t;
 static kv_t KV[KV_N];
+static uint8_t kvAny;                                /* a voice was on last sample (kv_start sets it) */
 static int16_t ksBuf[KV_N][KS_LEN];
 static float SINF[1025];
 static uint32_t kvNz = 0x1234567u, kvArp;
@@ -1027,7 +1028,7 @@ static void kv_start(uint32_t note, uint32_t type, float g, float bri, uint32_t 
     memset(v, 0, sizeof *v);
     f = 440.0f * f_exp2(((float)(int32_t)note - 69.0f) / 12.0f);
     v->inc = f / 44100.0f; v->note = (uint8_t)note; v->type = (uint8_t)type; v->g = g; v->bri = bri; v->wait = wait; v->from = (uint8_t)from;
-    v->gate = 1; v->on = 1; v->env = 0.0f;
+    v->gate = 1; v->on = 1; v->env = 0.0f; kvAny = 1;
     {
         float dec = 0.4f + (float)P.hDec * (from >= 2u ? 0.0f : 0.045f);      /* DECAY: ~0.4 .. 6 s */
         switch (type) {
@@ -1084,9 +1085,12 @@ static void kv_keys(void)                            /* T4's keys (queued by the
 static inline float kv_run(float duck)              /* one sample of all eight */
 {
     uint32_t k; float out = 0.0f;
+    if (!kvAny) return 0.0f;
+    kvAny = 0;
     for (k = 0; k < KV_N; k++) {
         kv_t *v = &KV[k]; float x;
         if (!v->on) continue;
+        kvAny = 1;
         if (v->wait) { v->wait--; continue; }
         v->age++;
         if (v->from == 3u && v->age > 4u * 44100u) v->gate = 0;          /* the tanpura's string: 4 s, then let go fast */
@@ -1297,6 +1301,7 @@ static void sg_lanes(uint32_t s, uint32_t p16)       /* the song's knobs, ~700 t
         if ((int32_t)x >= a && (int32_t)x < a + l) SG.rise = (float)((int32_t)x - a) / (float)l;
     }
 }
+static struct { zoo_t z; uint8_t ok; } zooNow;          /* this tick's ZOO (control) */
 static void control(void)
 {
     uint32_t s = E.s, p16 = E.stepPh >> 16, base;
@@ -1305,7 +1310,11 @@ static void control(void)
     cc_out(s, p16);
     kv_keys();
     if (SG.on && (E.ctr & 63u) == 0u) sg_lanes(s, p16);
-    eval_acid(s, p16, &oA, 0); eval_bio(s, p16, &oB); eval_kick(s, p16, &oK);
+    eval_acid(s, p16, &oA, 0); eval_kick(s, p16, &oK);
+    if (P.bAnimal < 7u && !(SG.on && sgs()->two)) {         /* ZOO's 303: one evaluation for the voice and for MIDI */
+        zooNow.ok = (uint8_t)zoo_eval(s, p16, &zooNow.z);
+        oB.on = (uint8_t)(zooNow.ok && zooNow.z.o.gate); oB.y = oB.on ? zooNow.z.o.y : 0; oB.amp = oB.on ? (zooNow.z.o.acc ? 30000 : 24000) : 0; oB.kt = 0;
+    } else { memset(&zooNow, 0, sizeof zooNow); zooNow.z.wave = 255; eval_bio(s, p16, &oB); }
     callOn = call_eval(s, p16, &oA, &callCq, &callRes);   /* an animal call takes ACID over (and sounds when ACID is muted) */
     callWave = callOn ? CALLS[callKey < 5 ? callKey : callKey < 10 ? callKey - 5 : 5].wave : 255u;
     if (SG.on && sgs()->two) {   /* the second 303: its own line, cutoff, resonance, envelope; panned right, more into the delay */
@@ -1322,9 +1331,9 @@ static void control(void)
         V2.kq = SG.bres * 15 / 4;                               /* res 0..1000 -> Q12 0..3.7 */
         V2.drv = 33; V2.panL = 22; V2.send = (int32_t)sgs()->bdly; V2.wave = 0; V2.on = 1;
     } else {                     /* 0.41: T2 ZOO */
-        zoo_t z;
+        zoo_t z = zooNow.z;
         int32_t fc;
-        V2.on = (uint8_t)(zoo_eval(s, p16, &z) || V2.amp > 8);
+        V2.on = (uint8_t)(zooNow.ok || V2.amp > 8);
         if (V2.on) {
             if (z.o.gate) V2.inc = inc_q8(z.o.y);
             V2.ampT = (!z.o.gate || (P.mutes & 2u)) ? 0 : ((((z.o.acc ? 30000 : 24000) * P.bLvl) >> 7) * E.duck) >> 15;
@@ -1374,7 +1383,13 @@ static void control(void)
     E.cF = fcq < 30000 ? fcq : 30000;
 }
 
-static volatile uint32_t cpu_us, cpu_max, cpu_avg8, cpu_pk;   /* this block; the worst lately; the average (x256); the peak shown */
+static volatile uint32_t cpu_us, cpu_max, cpu_avg8, cpu_pk;
+/* 0.47: a profile of the audio block while GLO page 1 shows: drums, control, KEYS, delay + room (ticks, averaged x256) */
+enum { PF_DRUM, PF_CTL, PF_KEYS, PF_FX, PF_N };
+static volatile uint8_t profOn;
+static uint32_t pfAcc[PF_N];
+static volatile uint32_t pfAvg[PF_N];
+#define PF_T() (profOn ? fm1_ticks() : 0u)   /* this block; the worst lately; the average (x256); the peak shown */
 #define D8_GAIN 450                                         /* the 808 against the 909 (tuned by ear and RMS) */
 static drum909_t D9;
 static drum808_t D8;
@@ -1458,8 +1473,9 @@ static void app_audio(int32_t *out, uint32_t n)
         control(); started = 1; midi_step(0);
     }
     if (E.stopReq) { E.stopReq = 0; E.playing = 0; run = 0; riseStart = -1; if (P.mClk == 1u) mq_push(0xFCu, 0, 0); midi_all_off(); kv_release_from(0); kv_release_from(2); }
+    { uint32_t k; for (k = 0; k < PF_N; k++) pfAcc[k] = 0; }
     if (P.kit) {   /* the 909 / 808: find this block's step edges first (the same clock as below), render up to each, hit, go on */
-        uint32_t pos = 0, k;
+        uint32_t pos = 0, k, tq = PF_T();
         drum_apply();
         for (k = 0; k < n; k++) drBuf[k] = d8Rev[k] = d8Dly[k] = 0.0f;
         if (E.playing) {
@@ -1473,11 +1489,12 @@ static void app_audio(int32_t *out, uint32_t n)
         }
         if (n > pos) dk_render(drBuf, pos, n - pos);
         if (SG.on && SG.dhpA < 0.9999f) for (k = 0; k < n; k++) { float x = drBuf[k]; dhpY = SG.dhpA * (dhpY + x - dhpX); dhpX = x; drBuf[k] = dhpY; }   /* the drums thinned out (a build) */
+        if (profOn) pfAcc[PF_DRUM] += fm1_ticks() - tq;
     }
     for (i = 0; i < n; i++) {
         int32_t mix = 0, wet = 0, dl, dr, md, l, r, rv = 0, b2 = 0;
         uint32_t ns;
-        if ((E.ctr++ & 15u) == 0u) control();
+        if ((E.ctr++ & 15u) == 0u) { uint32_t tq = PF_T(); control(); if (profOn) pfAcc[PF_CTL] += fm1_ticks() - tq; }
         {   /* the step clock (and, CLOCK = OUT, 24 MIDI ticks a beat) */
             uint32_t ph = E.stepPh, st = E.s, tk;
             int stepped = clk_adv(&ph, &st, E.sinc);
@@ -1562,14 +1579,17 @@ static void app_audio(int32_t *out, uint32_t n)
             mix += bo; wet += bo;
         }
         /* T4 KEYS: into the mix and, a little, into the delay and the room; it pumps with the kick */
-        {
+        if (kvAny) {
+            uint32_t tq = PF_T();
             float kx = kv_run((float)duckEnv * (1.0f / 32767.0f)) * ((P.mutes & 8u) && !SG.on ? 0.0f : 1.0f);
             int32_t kq = (int32_t)(kx * 14000.0f * (float)E.duck * (1.0f / 32767.0f));
             kq = kq > 30000 ? 30000 : kq < -30000 ? -30000 : kq;
             mix += kq; wet += kq >> 1;
+            if (profOn) pfAcc[PF_KEYS] += fm1_ticks() - tq;
         }
         /* the delay, as in the acid film: ACID and BIO only (the drums stay dry), dotted eighth by default; the
          * echoes go left, right, left..., each one through a low-pass, so each is darker and further away */
+        { uint32_t tq = PF_T();
         dl = dbufL[(E.didx - E.dlen) & DMASK]; dr = dbufR[(E.didx - E.dlen) & DMASK];
         E.dlp += rz((dr - E.dlp) * E.dk, 15);
         dbufL[E.didx] = (int16_t)clip16(rz(wet * P.dMix, 8) + rz(E.dlp * P.dFb, 7));   /* not sat(): it has gain 1.5 */
@@ -1577,6 +1597,7 @@ static void app_audio(int32_t *out, uint32_t n)
         E.didx = (E.didx + 1u) & DMASK;
         md = 1 + (P.mDrive >> 5);
         if (P.rMix) rv = rz(reverb(rz(wet, 3) + rz(dl + dr, 3)) * P.rMix, 7);   /* the acid, the animal and their echoes */
+        if (profOn) pfAcc[PF_FX] += fm1_ticks() - tq; }
         l = sat((mix + ((b2 * V2.panL) >> 5) + ((dl * 13) >> 4) + rv) * md); r = sat((mix + b2 + ((dr * 13) >> 4) + rv) * md);
         if (SG.on) {
             l = (l * SG.gain) >> 15; r = (r * SG.gain) >> 15;
@@ -1639,6 +1660,7 @@ static void app_audio(int32_t *out, uint32_t n)
     cpu_us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
     if (cpu_us > cpu_max) cpu_max = cpu_us;
     cpu_avg8 = (uint32_t)((int32_t)cpu_avg8 + (((int32_t)(cpu_us * 256u) - (int32_t)cpu_avg8) >> 6));   /* ~0.4 s (signed: it falls too) */
+    if (profOn) { uint32_t k; for (k = 0; k < PF_N; k++) { int32_t v = (int32_t)(pfAcc[k] / FM1_TICKS_PER_US * 256u); pfAvg[k] = (uint32_t)((int32_t)pfAvg[k] + ((v - (int32_t)pfAvg[k]) >> 6)); } }
 }
 
 /* ================================================================ the UI (main loop) */
@@ -1841,6 +1863,8 @@ static struct {
     int8_t slotK; uint8_t slotArm; uint32_t slotT;
 } U = {.held = -1, .touch = -1, .recKey = -1, .stepHeld = -1, .slotK = -1};
 
+static uint8_t scrMode;                              /* 0.47 test: 0 FULL, 1 LITE, 2 OFF (GLO page 1, the CPU knob) */
+static const char *const SCR_NAME[3] = {"CPU FULL", "CPU LITE", "CPU OFF"};
 static uint32_t seq_step_pages(void) { return P.sLen > 16u ? 2u : 1u; }   /* SEQ: steps 1-16 (and 17-32), then LINE */
 static const page_t *cur_page(void)
 {
@@ -2347,6 +2371,11 @@ static void turn(uint32_t enc, int32_t d)
         drDirty |= (uint16_t)(1u << v); U.touch = (int8_t)i; U.touchT = fm1_ms; changed();
         return;
     }
+    if (U.group == G_GLO && U.page % 4u == 0u && enc == ENC_KNOB2) {   /* 0.47 test: the screen FULL / LITE / OFF */
+        int32_t m = (int32_t)scrMode + (d > 0 ? 1 : -1);
+        scrMode = (uint8_t)(m < 0 ? 0 : m > 2 ? 2 : m); U.touch = 1; U.touchT = fm1_ms;
+        toast("SCREEN ", scrMode == 0u ? "FULL" : scrMode == 1u ? "LITE" : "OFF"); return;
+    }
     if (enc == ENC_SELECT) {
         if (npages() > 1u) { int32_t p = (int32_t)U.page + d; U.page = (uint8_t)(p < 0 ? 0 : p >= (int32_t)npages() ? (int32_t)npages() - 1 : p); }
         else if (SG.on) sg_skip(d);
@@ -2509,7 +2538,7 @@ static void draw_top(void)                                   /* 0..70: the page,
                 uint32_t av = cpu_avg8 * 100u / (5805u * 256u), pk = cpu_pk * 100u / 5805u;
                 s[0] = 0; sint(s, (int32_t)av); scat(s, "/"); sint(s, (int32_t)pk); scat(s, "%");
                 knob(cx, cy, 13, (int32_t)av, 0, 100, av > 60u ? REDC : KNC[2]);
-                cell_text(x0, "CPU AVG/PK", s, fpuIsr > 1u || fpuMain > 1u || pk > 90u);
+                cell_text(x0, SCR_NAME[scrMode % 3u], s, fpuIsr > 1u || fpuMain > 1u || pk > 90u);
             }
             continue;
         }
@@ -2708,6 +2737,23 @@ static void spectrum(float f0, float fc, float res, int32_t y0, int32_t h, uint1
     x = fx_log(fc); if (x >= 0 && x < 104) cv_rect(x, y0, 1, h, col);
 }
 static uint8_t drLvl[11]; static uint32_t drLast = 0xFFFFFFFFu;
+static void draw_profile(void)                       /* GLO page 1, right of the ring: where the sound's time goes */
+{
+    static const char *const NM[5] = {"DRUMS", "CONTROL", "KEYS", "ECHO+ROOM", "VOICES"};
+    uint32_t k, tot = cpu_avg8, part[5], sum = 0;
+    cv_begin(106, 170, PAPER);
+    for (k = 0; k < PF_N; k++) { part[k] = pfAvg[k]; sum += part[k]; }
+    part[4] = tot > sum ? tot - sum : 0u;            /* the rest: the 303s, the kick, BIO, the clock, the output */
+    t5(0, 4, "% OF 5.8 MS", mixc(PAPER, INK, 9));
+    for (k = 0; k < 5u; k++) {
+        char v[8] = ""; uint32_t pc = part[k] * 100u / (5805u * 256u);
+        int32_t y = 18 + (int32_t)k * 26;
+        t5(0, y, NM[k], INK); sint(v, (int32_t)pc); scat(v, "%"); t5(80, y, v, INK);
+        cv_rect(0, y + 10, 100, 4, FAINT); cv_rect(0, y + 10, (int32_t)(pc > 100u ? 100u : pc), 4, pc > 25u ? REDC : TCOL[2]);
+    }
+    draw_readout(SX, 70, 214);
+    cv_blit(SX, 70);
+}
 static void draw_scope(void)
 {
     uint32_t t = U.part & 3u, k;
@@ -2938,7 +2984,7 @@ static int load_old_store(void)                     /* 0.35 - 0.40: {cur; slot[6
 }
 static void app_main(void)
 {
-    uint32_t prev = 0, lastFrame = 0, lastTop = 0, k, ledT = 0;
+    uint32_t prev = 0, lastFrame = 0, lastTop = 0, k, ledT = 0, frameN = 0;
     if (settings_load(&ST, sizeof ST) == 0 && ST.cur.magic == MAGIC) P = ST.cur;
     else if (load_old_store()) P = ST.cur;
     else {
@@ -3032,6 +3078,7 @@ static void app_main(void)
             fm1_led_key(BTN_PLAY, E.playing && ((E.s & 3u) < 2u));
             fm1_led_key(BTN_REC, U.rec);
         }
+        profOn = (uint8_t)(U.group == G_GLO && U.page % 4u == 0u);
         /* the screen: the graph about 30 times a second, the rest when it changes */
         if (fm1_ms - lastFrame >= 33u) {
             lastFrame = fm1_ms;
@@ -3039,7 +3086,10 @@ static void app_main(void)
             if (U.held >= 0 && has_layer(U.held) && fm1_ms - U.heldT > 160u && !fxShow) { draw_keymap(); draw_strip(); }
             else if (U.group == G_DRUM && !fxShow) { draw_drums(); draw_strip(); }
             else if (steps_page() && !fxShow) { draw_steps(); draw_strip(); }
-            else { draw_ring(); draw_scope(); }
+            else if (scrMode == 0u || (scrMode == 1u && (++frameN & 3u) == 0u)) {
+                draw_ring();
+                if (profOn) draw_profile(); else draw_scope();
+            } else if (scrMode == 2u && profOn && (++frameN & 7u) == 0u) draw_profile();
             if (fm1_ms - lastTop >= 100u || (U.touch >= 0 && fm1_ms - U.touchT < 900u)) { lastTop = fm1_ms; draw_top(); }
         }
         if (SG.on && SG.ended) {

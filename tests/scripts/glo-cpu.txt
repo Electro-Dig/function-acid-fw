@@ -1,5 +1,8 @@
-# GLO page 1: the CPU cell (average / peak)
+# GLO page 1: the profile panel; the CPU knob turns the screen FULL / LITE / OFF
 50 btn 12
+200 btn 12
 300 btn 7
-800 shot
-1000 end
+1000 shot
+1200 enc 3 1
+1500 shot
+2000 end

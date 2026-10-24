@@ -1,0 +1,6 @@
+# MINIMAL, bars 49-64 (PEAK 1)
+500 hold 8
+600 keys 0x4
+700 keys 0
+800 release 8
+130000 end

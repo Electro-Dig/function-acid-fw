@@ -16,6 +16,13 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.47', '2026-10-24',
+     ['测负载用的诊断版：GLO 第 1 页右边显示声音各部分占多少（鼓 / CONTROL / KEYS / 回声+混响 / 其余声部）',
+      '同一页拧 CPU 那一格的旋钮：SCREEN FULL / LITE / OFF，看画面对声音负载的影响（只是试验，不存）',
+      '两处不改声音的省算：ZOO 的叫声每次只算一遍；KEYS 没有声部在响时整段跳过'],
+     ['A diagnostic build: GLO page 1 shows where the sound time goes (drums / control / KEYS / echo + room / the other voices)',
+      'On that page the CPU knob sets SCREEN FULL / LITE / OFF, to see what the screen costs the sound (a test, not saved)',
+      'Two savings that do not change the sound: ZOO is evaluated once per tick; KEYS is skipped while no voice sounds']),
     ('0.46', '2026-10-24',
      ['修 AUDIO CPU 的平均值算错（会显示 2868% 这种数）；峰值不变',
       '波形窗：CUTOFF 开得很大时不再画成一片竖线'],
