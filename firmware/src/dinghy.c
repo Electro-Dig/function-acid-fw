@@ -14,7 +14,7 @@
  * Integers only (no FPU): pitch is Q8 semitones (MIDI x 256), levels Q15, tables in acid_tables.h. */
 #define APP_NAME "FN ACID"
 #ifndef APP_VER
-#define APP_VER "0.49"
+#define APP_VER "0.50"
 #endif
 #define CV_MAX (240u * 110u)
 #include "platform.c"
@@ -2632,6 +2632,7 @@ static void draw_readout(int32_t ox, int32_t oy, int32_t ys)   /* what a knob di
 #define RCY 76
 #define RR 54
 static int32_t step_ang(uint32_t i) { return (int32_t)i * 64 - 256; }
+static int32_t nrad(int32_t n, int32_t ref) { int32_t d = (n - ref) * 2 / 3; return d < -10 ? -10 : d > 10 ? 10 : d; }   /* higher notes further out */
 static void ring_pos(uint32_t i, int32_t r, int32_t *x, int32_t *y) { int32_t a = step_ang(i); *x = RCX + ((r * icos(a)) >> 15); *y = RCY + ((r * isin(a)) >> 15); }
 static void draw_ring(void)
 {
@@ -2684,15 +2685,27 @@ static void draw_ring(void)
             }
         }
         circ(RCX, RCY, RR, FAINT);
-        for (i = 1; i < 16u; i++) if (fl[i] & 2u) arcq(RCX, RCY, RR + 1, step_ang(i - 1u), step_ang(i), 3, col);   /* ties, slides, held notes */
+        for (i = 1; i < 16u; i++) {
+            if (!(fl[i] & 2u)) continue;
+            if (t == 0u && nt[i] >= 0 && nt[i - 1u] >= 0 && nt[i] != nt[i - 1u]) {   /* a slide: a curve from the note to the next, bowed out */
+                int32_t r0 = RR + nrad(nt[i - 1u], ref), r1 = RR + nrad(nt[i], ref), rm = (r0 > r1 ? r0 : r1) + 20, k;
+                int32_t x0, y0, x2, y2, xc, yc, px = 0, py = 0;
+                ring_pos(i - 1u, r0, &x0, &y0); ring_pos(i, r1, &x2, &y2);
+                xc = RCX + ((rm * icos(step_ang(i - 1u) + 32)) >> 15); yc = RCY + ((rm * isin(step_ang(i - 1u) + 32)) >> 15);
+                for (k = 0; k <= 12; k++) {          /* a quadratic Bezier through the bow */
+                    int32_t u = 12 - k, x = (u * u * x0 + 2 * u * k * xc + k * k * x2) / 144, y = (u * u * y0 + 2 * u * k * yc + k * k * y2) / 144;
+                    if (k) { cv_line(px, py, x, y, REDC); cv_line(px + 1, py, x + 1, y, REDC); cv_line(px, py + 1, x, y + 1, REDC); }
+                    px = x; py = y;
+                }
+            } else arcq(RCX, RCY, RR + 1, step_ang(i - 1u), step_ang(i), 3, col);   /* a tie, a held note or chord: along the ring */
+        }
         for (i = 0; i < 16u; i++) {
-            int32_t x, y, d;
+            int32_t x, y;
             if (nt[i] < 0 || (fl[i] & 2u && t != 0u)) {
                 if (nt[i] < 0 && !(fl[i] & 2u)) { ring_pos(i, RR, &x, &y); cv_rect(x - 1, y - 1, 3, 3, INK); }
                 continue;
             }
-            d = (nt[i] - ref) * 2 / 3; d = d < -10 ? -10 : d > 10 ? 10 : d;
-            ring_pos(i, RR + d, &x, &y);
+            ring_pos(i, RR + nrad(nt[i], ref), &x, &y);
             dot(x, y, (fl[i] & 1u) ? 5 : 4, E.playing && i == now ? INK : col);
         }
         if (t == 0u) { if (nt[now] >= 0 && E.playing) snote(c, nt[now]); else snote(c, P.root + 12); }

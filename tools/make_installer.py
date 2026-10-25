@@ -16,6 +16,9 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.50', '2026-10-25',
+     ['转盘上的滑音画成一条连线：从前一个音的点弯出去，连到滑到的那个音（像视频里那样）；同一个音的连音仍是贴着圆圈的一段弧'],
+     ['Slides on the ring are a curve from one note to the note it slides to, bowed out (as in the films); a tie on the same note stays an arc along the ring']),
     ('0.49', '2026-10-24',
      ['修转盘指针偶尔往回跳：画的时候「第几步」和「这一步走到哪」是分两次读的，刚好跨步时会拼出一个往回一格的位置。现在一起读'],
      ['Fixed the ring pointer jumping back now and then: the step and its phase were read at two moments, so across a step they could point a step back. Read together now']),

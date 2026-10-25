@@ -1,0 +1,9 @@
+# 0.50: the ring with slides (FILM: HOME + white key 10), drums muted
+50 btn 12
+100 hold 8
+150 keys 0x10000
+200 keys 0
+250 release 8
+300 btn 12
+1000 shot
+1500 end
