@@ -162,17 +162,26 @@ def build_app():
             ("cc", *flags, "-c", FW / "src" / "dinghy.c", "-o", OUT / "dinghy.o")]
     tc_all(*cmds)
     elf = OUT / "dinghy.elf"
-    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / "dinghy.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin"):
-        (OUT / sect).unlink(missing_ok=True)
-    *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
-                               ("common/bin/objdump", "-t", elf),
-                               ("common/bin/objdump", "-d", elf),
-                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
-    (OUT / "dinghy.dis").write_text(dis)
+    order = OUT / "isr_order.ld"                # FN ACID 0.51: the interrupts' code first (tools/isr_order.py)
+    if not order.exists():
+        order.write_text("")
+    for attempt in range(3):                    # link; if the interrupts reach other code than the order says, again
+        tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-L", OUT, "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
+           OUT / "fm1_isr.o", OUT / "dinghy.o", "-o", elf)
+        for sect in ("text.bin", "data.bin", "ramtext.bin"):
+            (OUT / sect).unlink(missing_ok=True)
+        *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
+                                   ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
+                                   ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
+                                   ("common/bin/objdump", "-t", elf),
+                                   ("common/bin/objdump", "-d", elf),
+                                   ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
+        (OUT / "dinghy.dis").write_text(dis)
+        r = subprocess.run([sys.executable, str(SRC / "tools" / "isr_order.py"), str(OUT / "dinghy.dis"), str(order)],
+                           capture_output=True, text=True)
+        print(r.stdout.strip())
+        if r.returncode == 0:
+            break
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)

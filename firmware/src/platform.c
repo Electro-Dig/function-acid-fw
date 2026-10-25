@@ -9,7 +9,8 @@
  *   USB audio           the output as a class-compliant 16-bit stereo input, 44.1 or 48 kHz
  *   keys, knobs, LEDs   fm1_in.notes / buttons, fm1_input_edges, fm1_enc_take, fm1_led_key (hal/fm1_input.h)
  *   screen              240 x 240, lcd_fill, draw_text_box with FONT_S (16 px) / FONT_L (32 px) (gfx.c)
- *   settings            one 4 KiB flash sector with a CRC (settings_load / settings_save)
+ *   settings            two 4 KiB flash sectors, written in turn, each with a CRC and a sequence number
+ *                       (settings_load / settings_save): a cut save leaves the last good one (FN ACID 0.51)
  *   crash screen        the PC of a fault, then a reboot
  *
  * The app (dinghy.c) includes this file first and supplies:
@@ -22,6 +23,10 @@ enum { BTN_OCT_DOWN = 0, BTN_OCT_UP = 1, BTN_FX = 2, BTN_SEL = 3, BTN_ENV = 4, B
        BTN_GLO = 7, BTN_HOME = 8, BTN_SAVE = 9, BTN_ARP = 10, BTN_SEQ = 11, BTN_PLAY = 12, BTN_REC = 13 };
 enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB3 = 4, ENC_KNOB4 = 5, ENC_PRESETS = 6 };
 #define KEY_LED(k) (14u + (k))
+/* FN ACID 0.51: the time TIMER5 spends nested in an audio render (taken off the AUDIO CPU reading), and the halves
+ * the render was late for (the DMA had moved on: one half replayed) */
+#include <stdint.h>
+static volatile uint32_t t5_nested_ticks, audio_lost;
 
 #ifdef DINGHY_HOST
 #include "../../tests/host.c"                  /* on a computer: a fake FM-1 (tests/host.c) */
@@ -53,6 +58,7 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "libc.c"
+#define LCD_BAUD 0u                             /* FN ACID 0.51: 60 MHz (X0X, fm1-base-amb); 12 MHz held the main loop ~50 ms a frame */
 #include "lcd.c"
 #ifndef CV_MAX
 #define CV_MAX (240u * 64u)                     /* the biggest text box drawn at once */
@@ -69,8 +75,9 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #include "usb.c"
 
 /* ---- flash: read anywhere; erase / program only the update's staging area and the settings sector */
-#define SETTINGS_AT 0x000FC000u                 /* one 4 KiB sector of Felucca's globals area */
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u))
+#define SETTINGS_AT 0x000FC000u                 /* two 4 KiB sectors of Felucca's globals area, A and B */
+#define SETTINGS_B 0x000FD000u
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_B + 0x1000u))
 #include "fm1_flash.h"
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
@@ -134,9 +141,13 @@ static void ota_commit(const uint8_t *parm)
 }
 #include "recovery.c"
 
-/* ---- settings: [magic][length][crc32] then the bytes; settings_save erases the sector (~50 ms with
- * the interrupts off: the sound drops out), so save when nothing plays, not on every knob step */
-#define SETTINGS_MAGIC 0x59474E44u              /* "DNGY" */
+/* ---- settings: two sectors written in turn (A/B, as SLOOP / X0X), each [magic][length][crc32][seq] then the bytes;
+ * the newest valid one loads, so a save cut by a power loss leaves the one before. (Up to 0.50: one sector,
+ * [magic "DNGY"][length][crc32] at A, still read.) Erasing takes ~50 ms with the interrupts off: the audio buffer is
+ * cleared in the same window (else the DMA loops its last half: a buzz); save when nothing plays */
+#define SETTINGS_MAGIC 0x59474E44u              /* "DNGY": the one-sector format */
+#define SETTINGS_MAGIC2 0x32474E44u             /* "DNG2": with a sequence number */
+static void audio_silence(void);
 static uint32_t crc32(const uint8_t *p, uint32_t n)
 {
     uint32_t c = 0xFFFFFFFFu, k;
@@ -147,38 +158,63 @@ static uint32_t crc32(const uint8_t *p, uint32_t n)
     }
     return ~c;
 }
-static int settings_load(void *p, uint32_t n)   /* 0: loaded; else p is untouched */
+static uint8_t st_buf[4084];                    /* Function Acid: the state + 6 slots (Dinghy: 256 B) */
+static int st_head(uint32_t at, uint32_t *len, uint32_t *crc, uint32_t *seq, uint32_t *data)   /* 0: a header */
 {
-    static uint8_t buf[4084];                   /* Function Acid: the state + 7 slots (Dinghy: 256 B) */
-    uint32_t h[3];
-    if (!flash_ok || n > sizeof buf || st_read(SETTINGS_AT, h, sizeof h) || h[0] != SETTINGS_MAGIC || h[1] != n)
-        return -1;
-    if (st_read(SETTINGS_AT + sizeof h, buf, n) || crc32(buf, n) != h[2])
-        return -1;
-    memcpy(p, buf, n);
+    uint32_t h[4];
+    if (st_read(at, h, sizeof h)) return -1;
+    if (h[0] == SETTINGS_MAGIC2) { *len = h[1]; *crc = h[2]; *seq = h[3]; *data = at + 16u; return 0; }
+    if (h[0] == SETTINGS_MAGIC && at == SETTINGS_AT) { *len = h[1]; *crc = h[2]; *seq = 0; *data = at + 12u; return 0; }
+    return -1;
+}
+static int st_valid(uint32_t at, uint32_t *len, uint32_t *seq)    /* 0: a whole copy (it is left in st_buf) */
+{
+    uint32_t crc, data;
+    if (st_head(at, len, &crc, seq, &data) || *len > sizeof st_buf) return -1;
+    if (st_read(data, st_buf, *len) || crc32(st_buf, *len) != crc) return -1;
     return 0;
 }
-static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 4084 (the sector less the header) */
+static int settings_load(void *p, uint32_t n)   /* 0: the newest valid copy of n bytes; else p is untouched */
 {
-    uint32_t h[3] = {SETTINGS_MAGIC, n, 0}, took;
-    int rc;
-    if (!flash_ok || n > 4084u)
+    uint32_t la, lb, sa, sb, crc, data;
+    int a, b;
+    if (!flash_ok || n > sizeof st_buf) return -1;
+    a = !st_head(SETTINGS_AT, &la, &crc, &sa, &data) && la == n;
+    b = !st_head(SETTINGS_B, &lb, &crc, &sb, &data) && lb == n;
+    if (a && b && sb > sa) { if (!st_valid(SETTINGS_B, &lb, &sb)) { memcpy(p, st_buf, n); return 0; } b = 0; }
+    if (a && !st_valid(SETTINGS_AT, &la, &sa)) { memcpy(p, st_buf, n); return 0; }
+    if (b && !st_valid(SETTINGS_B, &lb, &sb)) { memcpy(p, st_buf, n); return 0; }
+    return -1;
+}
+static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 4080 (the sector less the header) */
+{
+    uint32_t h[4] = {SETTINGS_MAGIC2, n, 0, 1}, took, la, lb, sa = 0, sb = 0, to, f;
+    int va, vb, rc;
+    if (!flash_ok || n > 4080u)
         return -1;
+    va = !st_valid(SETTINGS_AT, &la, &sa); vb = !st_valid(SETTINGS_B, &lb, &sb);
+    to = va && (!vb || sa >= sb) ? SETTINGS_B : SETTINGS_AT;       /* over the older (or the broken) copy */
+    h[3] = (va && sa >= sb ? sa : vb ? sb : 0u) + 1u;
     h[2] = crc32(p, n);
-    if ((rc = fl_erase4k(SETTINGS_AT, &took)) != 0)
+    f = irq_save();                             /* the erase with the sound cleared, in one window */
+    audio_silence();
+    rc = FL_FAR(fl_erase4k_ram)(to, &took);
+    irq_restore(f);
+    if (rc != 0)
         return rc;
-    if ((rc = fl_write(SETTINGS_AT + sizeof h, p, n)) != 0)
+    if ((rc = fl_write(to + sizeof h, p, n)) != 0)
         return rc;
-    return fl_write(SETTINGS_AT, (const uint8_t *)h, sizeof h);   /* the header last: a cut save stays invalid */
+    return fl_write(to, (const uint8_t *)h, sizeof h);   /* the header last: a cut save stays invalid */
 }
 
 /* ---- MIDI over USB: 4-byte USB-MIDI packets, cable 0 */
-static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)   /* 1: a message (status, data 1, data 2) */
+static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2, uint32_t *t)   /* 1: a message (status, data 1, data 2), t when it came (ticks) */
 {
     uint32_t pk;
     if (mi_r == mi_w)
         return 0;
     pk = midi_in_q[mi_r % MQ];
+    *t = midi_in_t[mi_r % MQ];
     mi_r++;
     *st = (uint8_t)(pk >> 8);
     *d1 = (uint8_t)(pk >> 16);
@@ -212,6 +248,7 @@ void fm1_timer5_irq(void)
     if (in_audio) {
         if (usb_due)
             uac_service();
+        t5_nested_ticks += fm1_ticks() - t0;     /* not the render's own time (0.51) */
         return;
     }
     if (owed)
@@ -222,6 +259,7 @@ extern void isr_timer5(void);
 
 /* ---- the sound: ALNK0 I2S, two halves; the app renders, the MASTER knob scales, Q15 -> 24 bit (-6 dBFS ceiling) */
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
+static void audio_silence(void) { uint32_t i; for (i = 0; i < 2u * HALF_WORDS; i++) abuf[i] = 0; }   /* (interrupts off) */
 static volatile int32_t master_q12 = 2048;
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);
@@ -233,8 +271,13 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
     p = fm1_audio_pending();
     fm1_audio_ack_aux(p);
     if (p & FM1_AUDIO_HALF) {
-        int32_t *o = &abuf[fm1_audio_free_half() * HALF_WORDS];
-        uint32_t i, b;
+        static uint32_t last_half = 2u;
+        uint32_t half = fm1_audio_free_half(), i, b;
+        int32_t *o = &abuf[half * HALF_WORDS];
+        fm1_audio_ack_half();                   /* 0.51: first (JIANT 0.8.9): a flip during a late render stays pending */
+        if (half == last_half)
+            audio_lost++;                       /* this half again: the last render was late, a half replayed */
+        last_half = half;
         for (i = 0; i < HALF_WORDS; i++)
             o[i] = 0;
         uac_render_start();
@@ -247,7 +290,6 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             uac_tap(o + 2u * b, 32u);           /* the computer records what the speaker plays */
         for (i = 0; i < HALF_WORDS; i++)
             o[i] <<= 7;
-        fm1_audio_ack_half();
     }
     in_audio = 0;
 }

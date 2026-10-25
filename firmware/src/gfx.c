@@ -60,6 +60,9 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
     uint32_t i, n;
     if (w * h > CV_MAX)
         h = CV_MAX / w;
+#ifdef CV_BEGIN_HOOK
+    CV_BEGIN_HOOK();                /* (FN ACID: the keys, while the last strip goes out) */
+#endif
     lcd_sync();                     /* the last blit may still read cv_px */
     cv_w = w;
     cv_h = h;

@@ -1,0 +1,19 @@
+# 0.51: MIDI notes in. Stopped, the boot demo left: ACID (channel 1) A2 then C3; ZOO (2) A3; KEYS (3) a C major
+# chord; drums (10) BD SD CH. Then PLAY and ACID's steps transposed by a held note
+50 btn 12
+500 midi 0x90 45 100
+800 midi 0x80 45 0
+1000 midi 0x90 48 100
+1300 midi 0x80 48 0
+1600 midi 0x91 57 100
+2200 midi 0x81 57 0
+2600 midi 0x92 60 90
+2600 midi 0x92 64 90
+2600 midi 0x92 67 90
+3600 midi 0x82 60 0
+3600 midi 0x82 64 0
+3600 midi 0x82 67 0
+4200 midi 0x99 36 120
+4400 midi 0x99 38 120
+4600 midi 0x99 42 120
+5200 end

@@ -1,0 +1,7 @@
+# 0.51: SAVE while playing keeps it in RAM (no flash erase: no dropout); it goes to flash once stopped and quiet
+50 btn 12
+200 btn 12
+1000 btn 9
+1200 shot
+3000 btn 12
+6000 end

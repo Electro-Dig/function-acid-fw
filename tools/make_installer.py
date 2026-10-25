@@ -16,6 +16,19 @@ PRODUCT = 'FM-1_956'
 REPO = 'https://github.com/Electro-Dig/function-acid-fw'
 # the changelog on the page: (version, date, [Chinese lines], [English lines]); newest first
 CHANGES = [
+    ('0.51', '2026-10-25',
+     ['底层优化（对照 SLOOP / JIANT / X0X 评审的前两批）：声音会用到的代码排到闪存最前面，界面怎么改都不会再挤到它；每个采样里的除法改成乘法；回声和混响空闲时整段跳过；声音缓冲先确认再渲染',
+      '屏幕传输从 12 MHz 提到 60 MHz；按键、旋钮在等屏幕的空当也会被处理，画面不再拖慢按键',
+      'MIDI：输出直接从声音中断发出（以前要等主循环转发，时钟会抖几十毫秒）；时钟输入也在声音中断里处理，按 USB 收到的时刻算速度；新加音符输入：ACID 在 ACID CH，ZOO 在下一个通道，KEYS 再下一个，鼓在 10 通道（GM 鼓号）',
+      '存档：两个扇区轮流写，写到一半断电也不会丢；播放中按 SAVE 先记在内存里，停下且 1.5 秒没操作才写进闪存（以前播放中存会断音并嗡一声）',
+      'KEYS 被抢的声部淡出，不再咔哒；声音连续两块超过 85% 时 KEYS 先放掉最轻的一个声部',
+      'AUDIO CPU 扣掉按键扫描 / USB 声卡打断它的时间；GLO 第 1 页右边多了 LATE（迟到丢掉的块）和 SHED（为了不爆音放掉的声部）'],
+     ['Low-level work (the first two lists of the SLOOP / JIANT / X0X review): the code the sound reaches is linked first in flash, so screen changes no longer move it; no divides per sample; the delay and the room skip when silent; the audio half is acknowledged before it renders',
+      'The screen link runs at 60 MHz instead of 12; keys and knobs are read while a strip goes out, so drawing no longer delays them',
+      'MIDI: sent straight from the audio interrupt (it waited for the main loop: the clock out wobbled by tens of ms); the clock in is read there too, its tempo from the USB arrival times; notes in: ACID on ACID CH, ZOO on the next channel, KEYS on the one after, drums on 10 (GM notes)',
+      'Saving: two sectors in turn, a power cut mid-save loses nothing; SAVE while playing keeps it in memory and writes flash once stopped and quiet for 1.5 s (it used to drop the sound with a buzz)',
+      'KEYS fades a stolen voice instead of clicking; two blocks over 85 % in a row and KEYS lets its quietest voice go',
+      'AUDIO CPU no longer counts the key scan / USB audio that interrupt it; GLO page 1 shows LATE (blocks missed) and SHED (voices let go to stay clean)']),
     ('0.50', '2026-10-25',
      ['转盘上的滑音画成一条连线：从前一个音的点弯出去，连到滑到的那个音（像视频里那样）；同一个音的连音仍是贴着圆圈的一段弧'],
      ['Slides on the ring are a curve from one note to the note it slides to, bowed out (as in the films); a tie on the same note stays an arc along the ring']),

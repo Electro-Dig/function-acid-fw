@@ -78,9 +78,10 @@ static int settings_save(const void *p, uint32_t n)
 
 static uint8_t mq[64][3];
 static uint32_t mq_w, mq_r;
-static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
+static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2, uint32_t *t)
 {
     if (mq_r == mq_w) return 0;
+    *t = fm1_ms * 1000u * FM1_TICKS_PER_US;     /* when it came: its millisecond */
     *st = mq[mq_r % 64u][0]; *d1 = mq[mq_r % 64u][1]; *d2 = mq[mq_r % 64u][2];
     mq_r++;
     return 1;

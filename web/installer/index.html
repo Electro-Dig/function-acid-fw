@@ -8,7 +8,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FN ACID · 函数 Acid 固件安装</title>
-<meta name="description" content="FN ACID 0.50：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
+<meta name="description" content="FN ACID 0.51：M-VAVE FM-1 的 303 式 acid 固件，每条轨都是一条函数曲线。用 Chrome / Edge 通过 USB 直接安装。">
 <meta name="theme-color" content="#c4e45a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2032%2032%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%3Crect%20x%3D%221%22%20y%3D%221%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%226%22%20fill%3D%22%23c4e45a%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M6%2025V9c1.6%208%203.6%2012.6%206.5%2014.5V12c1.6%206.2%203.4%209.8%206.5%2011.2V15c1.5%204%203.3%206.6%207%207.6%22%20fill%3D%22none%22%20stroke%3D%22%231d1d1b%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Ccircle%20cx%3D%2226%22%20cy%3D%229%22%20r%3D%223%22%20fill%3D%22%23d8204a%22/%3E%3C/svg%3E">
 <style>
@@ -149,7 +149,7 @@ footer p{margin:0 0 8px}
   <section class="hero">
     <div>
       <h1><span class="fn">FN</span> ACID</h1>
-      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.50 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.50 test</span></p>
+      <p class="sub"><span data-l="zh">函数 Acid · M-VAVE FM-1 的自制固件 · 0.51 测试版</span><span data-l="en">Function Acid · a custom firmware for the M-VAVE FM-1 · 0.51 test</span></p>
       <p class="one" data-l="zh">一台 303 式的 acid 机器，<em>每条轨都是一条函数曲线</em>：横轴是时间，纵轴是音高，屏幕上画出来的线，就是你听到的声音。</p>
       <p class="one" data-l="en">A 303-style acid machine where <em>every track is a function curve</em>: time across, pitch up. The line on the screen is the sound you hear.</p>
       <ul class="chips">
@@ -185,12 +185,12 @@ footer p{margin:0 0 8px}
         <p class="warn" style="margin:6px 0 0"><span data-l="zh"><b>写入时别切走这个标签页</b>，也别最小化浏览器：后台标签页会被浏览器限速，每块数据之间的等待从 10 毫秒变成约 1 秒，整个过程会慢好几倍。也别拔线。</span><span data-l="en"><b>Keep this tab in front while it writes</b> and do not minimise the browser: a background tab is throttled (each block waits ~1 s instead of 10 ms), so it gets many times slower. Do not unplug.</span></p>
       </div>
       <div class="card go-box">
-        <div class="ver"><span class="pill">FN ACID 0.50</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
+        <div class="ver"><span class="pill">FN ACID 0.51</span><span class="pill red" data-l="zh">测试版</span><span class="pill red" data-l="en">test</span><span class="dim">FM-1_956</span></div>
         <button id="go" disabled data-t="install"></button>
         <progress id="bar" max="100" value="0"></progress>
         <p id="status" role="status" aria-live="polite"></p>
         <pre id="log" class="lcd"></pre>
-        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 531239d17101ed79555238c8a3113af4590b29ac81a2f33d5088dadbc0ef2627</p>
+        <p class="meta">function-acid.fwsc · 610,110 bytes · sha256 b976bfa367b7e4625489ada0503008610314846d296a89f7baa2f3350d1a88bd</p>
         <p><button id="app" class="ed" hidden data-t="appInstall"></button></p>
         <p class="small" style="margin:0"><span data-l="zh">这是测试版，可能不稳定。自制固件造成的任何损坏或问题，作者不承担责任，请自行判断是否使用。</span><span data-l="en">This is a test build and may be unstable. The authors accept no responsibility if your FM-1 is damaged or misbehaves; use it at your own risk.</span></p>
       </div>
@@ -201,7 +201,8 @@ footer p{margin:0 0 8px}
     <h2><span class="no">02</span><span data-l="zh">每一版改了什么</span><span data-l="en">What changed</span></h2>
     <div class="card">
       <ul class="log-list">
-        <li class="now"><div class="v">0.50<small>2026-10-25</small></div><div><ul data-l="zh"><li>转盘上的滑音画成一条连线：从前一个音的点弯出去，连到滑到的那个音（像视频里那样）；同一个音的连音仍是贴着圆圈的一段弧</li></ul><ul data-l="en"><li>Slides on the ring are a curve from one note to the note it slides to, bowed out (as in the films); a tie on the same note stays an arc along the ring</li></ul></div></li>
+        <li class="now"><div class="v">0.51<small>2026-10-25</small></div><div><ul data-l="zh"><li>底层优化（对照 SLOOP / JIANT / X0X 评审的前两批）：声音会用到的代码排到闪存最前面，界面怎么改都不会再挤到它；每个采样里的除法改成乘法；回声和混响空闲时整段跳过；声音缓冲先确认再渲染</li><li>屏幕传输从 12 MHz 提到 60 MHz；按键、旋钮在等屏幕的空当也会被处理，画面不再拖慢按键</li><li>MIDI：输出直接从声音中断发出（以前要等主循环转发，时钟会抖几十毫秒）；时钟输入也在声音中断里处理，按 USB 收到的时刻算速度；新加音符输入：ACID 在 ACID CH，ZOO 在下一个通道，KEYS 再下一个，鼓在 10 通道（GM 鼓号）</li><li>存档：两个扇区轮流写，写到一半断电也不会丢；播放中按 SAVE 先记在内存里，停下且 1.5 秒没操作才写进闪存（以前播放中存会断音并嗡一声）</li><li>KEYS 被抢的声部淡出，不再咔哒；声音连续两块超过 85% 时 KEYS 先放掉最轻的一个声部</li><li>AUDIO CPU 扣掉按键扫描 / USB 声卡打断它的时间；GLO 第 1 页右边多了 LATE（迟到丢掉的块）和 SHED（为了不爆音放掉的声部）</li></ul><ul data-l="en"><li>Low-level work (the first two lists of the SLOOP / JIANT / X0X review): the code the sound reaches is linked first in flash, so screen changes no longer move it; no divides per sample; the delay and the room skip when silent; the audio half is acknowledged before it renders</li><li>The screen link runs at 60 MHz instead of 12; keys and knobs are read while a strip goes out, so drawing no longer delays them</li><li>MIDI: sent straight from the audio interrupt (it waited for the main loop: the clock out wobbled by tens of ms); the clock in is read there too, its tempo from the USB arrival times; notes in: ACID on ACID CH, ZOO on the next channel, KEYS on the one after, drums on 10 (GM notes)</li><li>Saving: two sectors in turn, a power cut mid-save loses nothing; SAVE while playing keeps it in memory and writes flash once stopped and quiet for 1.5 s (it used to drop the sound with a buzz)</li><li>KEYS fades a stolen voice instead of clicking; two blocks over 85 % in a row and KEYS lets its quietest voice go</li><li>AUDIO CPU no longer counts the key scan / USB audio that interrupt it; GLO page 1 shows LATE (blocks missed) and SHED (voices let go to stay clean)</li></ul></div></li>
+        <li><div class="v">0.50<small>2026-10-25</small></div><div><ul data-l="zh"><li>转盘上的滑音画成一条连线：从前一个音的点弯出去，连到滑到的那个音（像视频里那样）；同一个音的连音仍是贴着圆圈的一段弧</li></ul><ul data-l="en"><li>Slides on the ring are a curve from one note to the note it slides to, bowed out (as in the films); a tie on the same note stays an arc along the ring</li></ul></div></li>
         <li><div class="v">0.49<small>2026-10-24</small></div><div><ul data-l="zh"><li>修转盘指针偶尔往回跳：画的时候「第几步」和「这一步走到哪」是分两次读的，刚好跨步时会拼出一个往回一格的位置。现在一起读</li></ul><ul data-l="en"><li>Fixed the ring pointer jumping back now and then: the step and its phase were read at two moments, so across a step they could point a step back. Read together now</li></ul></div></li>
         <li><div class="v">0.48<small>2026-10-24</small></div><div><ul data-l="zh"><li>KEYS 的 PAD（DEEP 的和弦垫）和 DRONE（RAGA 的坦普拉）省算：波形预先做成表，每个采样只查两次表（以前要算 5 次正弦），相位改用整数，并且每两个采样算一次、中间插值。在 0.47 的分项里 KEYS 占了 38%，这一版应该降到一个零头。声音和以前一样（电脑上对比 DEEP、RAGA 的音量和高频）</li></ul><ul data-l="en"><li>KEYS PAD (the DEEP pads) and DRONE (the RAGA tanpura) cost far less: the pad wave is a table (two lookups a sample instead of five sines), integer phases, and both run every other sample with interpolation. In 0.47 KEYS was 38% of the block; it should now be a fraction. The sound is as before (DEEP and RAGA compared on the computer: level and highs)</li></ul></div></li>
         <li><div class="v">0.47<small>2026-10-24</small></div><div><ul data-l="zh"><li>测负载用的诊断版：GLO 第 1 页右边显示声音各部分占多少（鼓 / CONTROL / KEYS / 回声+混响 / 其余声部）</li><li>同一页拧 CPU 那一格的旋钮：SCREEN FULL / LITE / OFF，看画面对声音负载的影响（只是试验，不存）</li><li>两处不改声音的省算：ZOO 的叫声每次只算一遍；KEYS 没有声部在响时整段跳过</li></ul><ul data-l="en"><li>A diagnostic build: GLO page 1 shows where the sound time goes (drums / control / KEYS / echo + room / the other voices)</li><li>On that page the CPU knob sets SCREEN FULL / LITE / OFF, to see what the screen costs the sound (a test, not saved)</li><li>Two savings that do not change the sound: ZOO is evaluated once per tick; KEYS is skipped while no voice sounds</li></ul></div></li>
@@ -575,7 +576,7 @@ const TEXT = {
  "zh": {
   "intro": "用 USB 把 FM-1 直接接到电脑上（Chrome 或 Edge）。",
   "warn": "写入时不要拔 USB 线。",
-  "install": "安装 FN ACID 0.50",
+  "install": "安装 FN ACID 0.51",
   "other": "English",
   "editor": "编辑器",
   "edOffline": "下载编辑器",
@@ -620,7 +621,7 @@ const TEXT = {
  "en": {
   "intro": "Connect the FM-1 straight to the computer by USB (Chrome or Edge).",
   "warn": "Do not unplug the USB cable while writing.",
-  "install": "Install FN ACID 0.50",
+  "install": "Install FN ACID 0.51",
   "other": "中文",
   "editor": "Editor",
   "edOffline": "Download the editor",
@@ -694,7 +695,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.50 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "531239d17101ed79555238c8a3113af4590b29ac81a2f33d5088dadbc0ef2627"};
+const meta = {"version": "0.51 test", "product": "FM-1_956", "pkg": "function-acid.fwsc", "sha256": "b976bfa367b7e4625489ada0503008610314846d296a89f7baa2f3350d1a88bd"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {

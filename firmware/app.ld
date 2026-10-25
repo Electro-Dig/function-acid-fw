@@ -18,7 +18,9 @@ MEMORY
 }
 SECTIONS
 {
-    .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
+    /* FN ACID 0.51: the code the interrupts reach first, in the order they reach it (tools/isr_order.py writes
+     * build/isr_order.ld): screen code can no longer move it in the instruction cache */
+    .text : { KEEP(*(.text.crt0)) INCLUDE isr_order.ld *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
